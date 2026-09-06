@@ -1,0 +1,38 @@
+# --- private / internal documentation (never publish) ---
+docs/
+private-docs/
+_private/
+*.private.md
+
+# --- secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+client_secret*.json
+service-account*.json
+
+# --- deps / build ---
+node_modules/
+.next/
+dist/
+build/
+out/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# --- os / editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# --- local data / caches ---
+*.log
+.cache/
+tmp/

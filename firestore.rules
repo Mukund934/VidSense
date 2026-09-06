@@ -1,0 +1,148 @@
+rules_version = '2';
+
+// VidSense AI — Firestore security rules.
+//
+// Posture: deny by default. Two zones only.
+//
+//   users/{uid}/**   private to that user, and to nobody else
+//   videos/**        shared video knowledge: readable by any signed-in user,
+//                    writable by NOBODY through the client
+//
+// The videos/** zone holds no user data by construction, which is what makes the
+// cross-user cache safe. It is written exclusively by the Admin SDK, which
+// bypasses these rules — so `allow write: if false` blocks clients without
+// blocking the server.
+//
+// Messages are create-and-delete but never update. A receipt is a record of what
+// the system said at a moment in time; you may delete your data, you may not
+// silently rewrite the evidence.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- helpers ----------------------------------------------------------
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Incoming document carries only permitted fields, and all required ones.
+    function shapedAs(required, optional) {
+      return request.resource.data.keys().hasAll(required)
+          && request.resource.data.keys().hasOnly(required.concat(optional));
+    }
+
+    function isText(field, maxLen) {
+      return field is string && field.size() <= maxLen;
+    }
+
+    // Guards against a client trying to inflate a document toward the 1 MiB limit.
+    function isSmall() {
+      return request.resource.data.size() < 40;
+    }
+
+    // ---- user profile -----------------------------------------------------
+
+    match /users/{uid} {
+      allow read: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && isSmall()
+        && shapedAs(['createdAt'], ['displayName', 'email', 'photoURL', 'lastSeenAt', 'settings'])
+        && (!('displayName' in request.resource.data) || isText(request.resource.data.displayName, 200))
+        && (!('email' in request.resource.data) || isText(request.resource.data.email, 320))
+        && (!('photoURL' in request.resource.data) || isText(request.resource.data.photoURL, 2000));
+      allow delete: if isOwner(uid);
+
+      // ---- per-user index of analysed videos ------------------------------
+      // This is the user's history. The video KNOWLEDGE lives in /videos.
+
+      match /history/{videoId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && isSmall()
+          && shapedAs(
+               ['videoId', 'lastOpenedAt'],
+               ['title', 'channelTitle', 'thumbnailUrl', 'durationSec', 'firstAnalyzedAt',
+                'openCount', 'conversationCount', 'noteCount', 'bookmarkCount', 'status']
+             )
+          && request.resource.data.videoId == videoId
+          && (!('title' in request.resource.data) || isText(request.resource.data.title, 500))
+          && (!('status' in request.resource.data) ||
+              request.resource.data.status in ['queued', 'processing', 'ready', 'failed', 'degraded']);
+      }
+
+      // ---- conversations ---------------------------------------------------
+
+      match /conversations/{conversationId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && isSmall()
+          && shapedAs(['videoId', 'createdAt'], ['title', 'updatedAt', 'messageCount'])
+          && isText(request.resource.data.videoId, 64)
+          && (!('title' in request.resource.data) || isText(request.resource.data.title, 300));
+
+        match /messages/{messageId} {
+          allow read: if isOwner(uid);
+
+          // Create and delete, never update: the evidence record is immutable.
+          allow create: if isOwner(uid)
+            && isSmall()
+            && shapedAs(['role', 'text', 'createdAt'], ['receipts', 'lane', 'confidence', 'model'])
+            && request.resource.data.role in ['user', 'assistant']
+            && isText(request.resource.data.text, 20000)
+            && (!('receipts' in request.resource.data) || request.resource.data.receipts is list)
+            && (!('lane' in request.resource.data) ||
+                request.resource.data.lane in ['VIDEO', 'VIEWERS', 'EXTERNAL', 'INFERENCE']);
+          allow update: if false;
+          allow delete: if isOwner(uid);
+        }
+      }
+
+      // ---- annotations -----------------------------------------------------
+
+      match /notes/{noteId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && isSmall()
+          && shapedAs(['videoId', 'tMs', 'text', 'createdAt'], ['updatedAt'])
+          && isText(request.resource.data.text, 10000)
+          && request.resource.data.tMs is int
+          && request.resource.data.tMs >= 0;
+      }
+
+      match /bookmarks/{bookmarkId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && isSmall()
+          && shapedAs(['videoId', 'tMs', 'createdAt'], ['label'])
+          && request.resource.data.tMs is int
+          && request.resource.data.tMs >= 0
+          && (!('label' in request.resource.data) || isText(request.resource.data.label, 300));
+      }
+    }
+
+    // ---- shared video knowledge -------------------------------------------
+    // Contains no user data. Written only by the Admin SDK, which bypasses rules,
+    // so a client can never poison knowledge that other users will read.
+
+    match /videos/{videoId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+
+      match /{document=**} {
+        allow read: if isSignedIn();
+        allow write: if false;
+      }
+    }
+
+    // ---- everything else ---------------------------------------------------
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

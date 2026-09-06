@@ -7,6 +7,9 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    // The default suite runs fully offline. Rules tests need the emulator and
+    // live in their own config so `npm test` never depends on a running service.
     include: ['tests/**/*.test.ts'],
+    exclude: ['tests/rules/**'],
   },
 })

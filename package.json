@@ -2,7 +2,7 @@
   "name": "vidsense",
   "version": "0.0.1",
   "private": true,
-  "description": "VidSense AI — understand every video",
+  "description": "VidSense AI \u2014 understand every video",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -10,11 +10,16 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:rules": "firebase emulators:exec --only firestore \"vitest run --config vitest.rules.config.ts\"",
+    "test:all": "npm run test && npm run test:rules",
     "typecheck": "tsc --noEmit",
+    "emulators": "firebase emulators:start --only auth,firestore",
     "experiment": "tsx scripts/experiments/run.ts"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
     "@types/node": "^22.10.0",
+    "firebase": "^12.18.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"

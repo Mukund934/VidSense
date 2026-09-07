@@ -36,14 +36,37 @@ Early development. Architecture is settled; implementation is in progress.
 
 ```bash
 npm install
-cp .env.example .env.local   # fill in your own keys
-npm run dev
 ```
 
-The test suite runs fully offline against recorded fixtures — no API keys required:
+The web application is not scaffolded yet, so there is no dev server to start. What exists today is the
+domain core and the ingestion layer, and both are exercised entirely by tests.
+
+The default suite runs fully offline against recorded fixtures — no API keys, no network, no emulator:
 
 ```bash
 npm test
+```
+
+The security rules run against the Firestore emulator. It is started for you, or reused if one is already
+listening on the port in `firebase.json`:
+
+```bash
+npm run test:rules
+```
+
+Both together, plus types:
+
+```bash
+npm run test:all
+npm run typecheck
+```
+
+The feasibility experiments are the only code that talks to a live API. They are not part of the
+application and each one reports `BLOCKED` rather than failing when its credential is absent:
+
+```bash
+cp .env.example .env.local   # fill in your own keys
+npm run experiment           # or: npm run experiment -- O5
 ```
 
 ## Principles

@@ -12,12 +12,15 @@
 
 import { type ExperimentResult, loadEnv, report } from './lib.js'
 import { c1Drift, clipSupport, o5TokenBilling } from './gemini.js'
+import { c1Alignment, c1Windowed } from './alignment.js'
 import { o3BatchCeiling, o4CaptionsList, oauthUrl } from './youtube.js'
 
 const EXPERIMENTS: Record<string, () => Promise<ExperimentResult> | ExperimentResult> = {
   O5: o5TokenBilling,
   clip: clipSupport,
   C1: c1Drift,
+  'C1-align': c1Alignment,
+  'C1-window': c1Windowed,
   O3: o3BatchCeiling,
   O4: o4CaptionsList,
   'oauth-url': oauthUrl,

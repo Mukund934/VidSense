@@ -13,6 +13,7 @@
 
 import type { EncodedBlob } from '@/domain/blob'
 import type { TranscriptProvenance } from '@/domain/transcript'
+import type { Timing } from '@/domain/timing'
 
 // ---------------------------------------------------------------- product state
 
@@ -116,6 +117,8 @@ export interface VideoDoc {
   transcriptParts?: EncodedBlob[]
   timeline?: EncodedBlob
   provenance: TranscriptProvenance
+  /** Timing trust for the stored cues. See src/domain/timing.ts. */
+  timing?: Timing
   ingestedAt: number
   refreshedAt: number
   /** Enforced in application code, NOT by a Firestore TTL policy — TTL requires billing. */

@@ -8,6 +8,7 @@
 
 import type { EncodedBlob } from '@/domain/blob'
 import type { TranscriptProvenance } from '@/domain/transcript'
+import type { Timing } from '@/domain/timing'
 import type { AnalysisStatus, HistoryDoc, VideoMetadata } from '@/data/schema'
 
 /** The shared video-knowledge record as the orchestrator sees it. */
@@ -16,6 +17,9 @@ export interface StoredVideo {
   transcript?: EncodedBlob
   transcriptParts?: EncodedBlob[]
   provenance: TranscriptProvenance
+  /** How far the stored cue times can be trusted. Persisted so a cache read
+   *  cannot quietly downgrade a corrected transcript back to raw model output. */
+  timing?: Timing
   ingestedAt: number
   refreshedAt: number
   expiresAt: number

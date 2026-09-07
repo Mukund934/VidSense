@@ -13,6 +13,7 @@
  */
 
 import { buildTranscript } from '@/domain/transcript'
+import { type Timing, timingFor } from '@/domain/timing'
 import type { FetchResult, TranscriptSource, VideoInput } from '@/ingest/source'
 
 export interface HttpResponse {
@@ -90,6 +91,41 @@ export function classifyStatus(status: number, body: string): FetchResult & { ok
   }
 
   return { ok: false, reason: 'upstream_error', detail: `HTTP ${status}: ${body.slice(0, 200)}` }
+}
+
+/**
+ * Rescale model timestamps against the video's real duration.
+ *
+ * Measured 2026-09-07: the model's transcript timestamps overshoot the true
+ * duration by roughly half — a median error of 82s on a six-minute talk. The
+ * overshoot is close to proportional, so anchoring the last cue to the real
+ * end brings the median error down to about 7.5s (p95 16.6s, n=8 probes
+ * against clip-derived ground truth).
+ *
+ * That is a large improvement and still not a precise timestamp, which is why
+ * the result is labelled `model_rescaled` rather than presented as exact. The
+ * correction is applied only when we know the true duration and the model has
+ * actually overshot it; scaling a transcript that already fits would be
+ * inventing an error to correct.
+ */
+export function rescaleToDuration(
+  cues: ReadonlyArray<{ startMs: number; endMs: number; text: string }>,
+  durationMs: number,
+): { cues: Array<{ startMs: number; endMs: number; text: string }>; timing: Timing } {
+  const last = cues.length ? Math.max(...cues.map((c) => c.endMs)) : 0
+  if (durationMs <= 0 || last <= durationMs) {
+    return { cues: [...cues], timing: timingFor('model_raw') }
+  }
+
+  const scale = durationMs / last
+  return {
+    cues: cues.map((c) => ({
+      startMs: Math.round(c.startMs * scale),
+      endMs: Math.round(c.endMs * scale),
+      text: c.text,
+    })),
+    timing: timingFor('model_rescaled'),
+  }
 }
 
 /** Coerce the model's array into ordered, non-overlapping cues. */
@@ -187,9 +223,11 @@ export class GeminiUrlSource implements TranscriptSource {
     }
 
     const durationMs = input.durationSec !== undefined ? input.durationSec * 1000 : 0
-    const cues = normaliseCues(rawCues, durationMs)
+    const parsed = normaliseCues(rawCues, durationMs)
 
-    if (cues.length === 0) return { ok: false, reason: 'no_transcript', detail: 'no usable cues' }
+    if (parsed.length === 0) return { ok: false, reason: 'no_transcript', detail: 'no usable cues' }
+
+    const { cues, timing } = rescaleToDuration(parsed, durationMs)
 
     return {
       ok: true,
@@ -199,6 +237,7 @@ export class GeminiUrlSource implements TranscriptSource {
         language: input.language ?? 'unknown',
         durationMs: durationMs || cues[cues.length - 1]!.endMs,
         cues,
+        timing,
       }),
     }
   }

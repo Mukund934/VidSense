@@ -27,6 +27,7 @@ import {
 } from '@/data/schema'
 import type { EncodedBlob } from '@/domain/blob'
 import type { TranscriptProvenance } from '@/domain/transcript'
+import type { Timing, TimingSource } from '@/domain/timing'
 import type { HistoryStore, StoredVideo, VideoStore } from '@/ingest/ports'
 
 /** Subcollection holding an oversized transcript, one ordered slice per document. */
@@ -46,7 +47,29 @@ const STATUS: ReadonlySet<string> = new Set<AnalysisStatus>([
   'degraded',
 ])
 
+const TIMING_SOURCES: ReadonlySet<string> = new Set<TimingSource>([
+  'caption_track',
+  'clip_window',
+  'model_rescaled',
+  'model_raw',
+  'user_supplied',
+])
+
 // ------------------------------------------------------------------ decoding
+
+/**
+ * A timing record we cannot vouch for is dropped rather than guessed at.
+ * The transcript then falls back to the least trustworthy label, which is the
+ * safe direction to be wrong in.
+ */
+function asTiming(value: unknown): Timing | null {
+  if (!value || typeof value !== 'object') return null
+  const t = value as Record<string, unknown>
+  if (typeof t.source !== 'string' || !TIMING_SOURCES.has(t.source)) return null
+  const tol = t.toleranceMs
+  if (tol !== null && typeof tol !== 'number') return null
+  return { source: t.source as TimingSource, toleranceMs: tol as number | null }
+}
 
 function asBlob(value: unknown): EncodedBlob | null {
   if (!value || typeof value !== 'object') return null
@@ -97,6 +120,7 @@ export function parseStoredVideo(data: DocumentData | undefined): StoredVideo | 
   if (typeof expiresAt !== 'number') return null
 
   const transcript = asBlob(data.transcript)
+  const timing = asTiming(data.timing)
 
   return {
     metadata,
@@ -107,6 +131,7 @@ export function parseStoredVideo(data: DocumentData | undefined): StoredVideo | 
     expiresAt,
     schemaVersion: SCHEMA_VERSION,
     ...(transcript ? { transcript } : {}),
+    ...(timing ? { timing } : {}),
     ...(typeof data.failureReason === 'string' ? { failureReason: data.failureReason } : {}),
   }
 }
@@ -132,6 +157,7 @@ function toDocument(doc: StoredVideo, partCount: number): DocumentData {
       ...(metadata.thumbnailUrl ? { thumbnailUrl: metadata.thumbnailUrl } : {}),
     },
     provenance: doc.provenance,
+    ...(doc.timing ? { timing: { source: doc.timing.source, toleranceMs: doc.timing.toleranceMs } } : {}),
     status: doc.status,
     ingestedAt: doc.ingestedAt,
     refreshedAt: doc.refreshedAt,

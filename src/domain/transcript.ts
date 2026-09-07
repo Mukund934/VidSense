@@ -8,6 +8,12 @@
  */
 
 import { sanitiseUntrusted } from '@/domain/untrusted'
+import {
+  type ReceiptPrecision,
+  type Timing,
+  precisionOf,
+  timingFor,
+} from '@/domain/timing'
 
 /** One timed unit of speech. Cues are contiguous and ordered by `startMs`. */
 export interface Cue {
@@ -30,6 +36,12 @@ export interface TimedTranscript {
   readonly language: string
   /** Milliseconds of the source media the transcript is believed to cover. */
   readonly durationMs: number
+  /**
+   * How far these cue times can be trusted, and why. Required, because a
+   * transcript whose precision is unstated is one the UI will quietly assume is
+   * exact — and measured against ground truth, it usually is not.
+   */
+  readonly timing: Timing
 }
 
 /** A resolved evidence span. Produced only by {@link resolveReceipt}. */
@@ -39,6 +51,10 @@ export interface Receipt {
   readonly startMs: number
   readonly endMs: number
   readonly quote: string
+  /** Carried from the transcript, so a receipt can never outrun its evidence. */
+  readonly timing: Timing
+  /** What this receipt may honestly claim: exact, approximate, or unlocated. */
+  readonly precision: ReceiptPrecision
 }
 
 export class CueRangeError extends Error {
@@ -85,7 +101,15 @@ export function resolveReceipt(
     .replace(/\s+/g, ' ')
     .trim()
 
-  return { cueStart, cueEnd, startMs: first.startMs, endMs: last.endMs, quote }
+  return {
+    cueStart,
+    cueEnd,
+    startMs: first.startMs,
+    endMs: last.endMs,
+    quote,
+    timing: transcript.timing,
+    precision: precisionOf(transcript.timing),
+  }
 }
 
 /** Build a transcript from raw cue data, normalising indices and ordering. */
@@ -95,6 +119,8 @@ export function buildTranscript(input: {
   language: string
   durationMs: number
   cues: ReadonlyArray<{ startMs: number; endMs: number; text: string; speaker?: string }>
+  /** Omitted only by callers that genuinely have no better claim than the model's raw output. */
+  timing?: Timing
 }): TimedTranscript {
   const ordered = [...input.cues].sort((a, b) => a.startMs - b.startMs)
   const cues: Cue[] = ordered.map((c, i) => {
@@ -118,6 +144,10 @@ export function buildTranscript(input: {
     provenance: input.provenance,
     language: input.language,
     durationMs: input.durationMs,
+    // Defaulting to the least trustworthy source is deliberate: a caller that
+    // has not thought about timing should not be granted precision it never
+    // established.
+    timing: input.timing ?? timingFor('model_raw'),
   }
 }
 
@@ -134,4 +164,16 @@ export function formatTimestamp(ms: number): string {
 /** A watch URL that opens the video at the given moment. */
 export function youtubeMomentUrl(videoId: string, ms: number): string {
   return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&t=${Math.floor(ms / 1000)}s`
+}
+
+/**
+ * A jump link for a receipt, or null when the timing does not support one.
+ *
+ * The null is the point. An `unlocated` receipt still carries a verbatim quote,
+ * which is real evidence; attaching a link that lands in the wrong sentence
+ * would turn that evidence into a false claim with a timestamp on it.
+ */
+export function receiptSeekUrl(videoId: string, receipt: Receipt): string | null {
+  if (receipt.precision === 'unlocated') return null
+  return youtubeMomentUrl(videoId, receipt.startMs)
 }

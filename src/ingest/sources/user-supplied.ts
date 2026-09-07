@@ -6,6 +6,7 @@
  * if every provider route closes, this still works.
  */
 
+import { timingFor } from '@/domain/timing'
 import { buildTranscript } from '@/domain/transcript'
 import { parseTranscriptText } from '@/ingest/parse-transcript'
 import type { FetchResult, TranscriptSource, VideoInput } from '@/ingest/source'
@@ -43,6 +44,7 @@ export class UserSuppliedSource implements TranscriptSource {
       transcript: buildTranscript({
         videoId: input.ref.videoId,
         provenance: 'user_supplied',
+      timing: timingFor('user_supplied'),
         language: input.language ?? 'unknown',
         durationMs: input.durationSec !== undefined ? input.durationSec * 1000 : last.endMs,
         cues,

@@ -115,6 +115,9 @@ function transcriptFromStored(videoId: string, stored: StoredVideo): TimedTransc
     language: 'unknown',
     durationMs: stored.metadata.durationSec * 1000,
     cues,
+    // Restored rather than recomputed: without this a cache hit would relabel a
+    // corrected transcript as raw model output and lose the precision claim.
+    ...(stored.timing ? { timing: stored.timing } : {}),
   })
 }
 
@@ -238,6 +241,7 @@ async function storeVideo(
   const doc: StoredVideo = {
     metadata,
     provenance: transcript.provenance,
+    timing: transcript.timing,
     ingestedAt: now,
     refreshedAt: now,
     // Retention is enforced in application code: Firestore TTL policies require billing.

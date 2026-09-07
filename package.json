@@ -10,7 +10,7 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:rules": "firebase emulators:exec --only firestore \"vitest run --config vitest.rules.config.ts\"",
+    "test:rules": "tsx scripts/test-rules.ts",
     "test:all": "npm run test && npm run test:rules",
     "typecheck": "tsc --noEmit",
     "emulators": "firebase emulators:start --only auth,firestore",

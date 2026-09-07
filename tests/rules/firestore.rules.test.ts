@@ -23,13 +23,32 @@ let env: RulesTestEnvironment
 const ALICE = 'alice'
 const BOB = 'bob'
 
+/**
+ * Read the emulator port from firebase.json rather than repeating it here.
+ *
+ * These ports are deliberately not the Firebase defaults: the defaults collide
+ * with any other project's emulator suite running on the same machine, and a
+ * collision on the *hub* port tears down the whole suite — including Firestore —
+ * leaving this file failing for a reason that looks nothing like its cause.
+ */
+function emulatorPort(): number {
+  const config = JSON.parse(readFileSync('firebase.json', 'utf8')) as {
+    emulators?: { firestore?: { port?: number } }
+  }
+  const port = config.emulators?.firestore?.port
+  if (typeof port !== 'number') {
+    throw new Error('firebase.json does not declare emulators.firestore.port')
+  }
+  return port
+}
+
 beforeAll(async () => {
   env = await initializeTestEnvironment({
     projectId: 'vidsense-rules-test',
     firestore: {
       rules: readFileSync('firestore.rules', 'utf8'),
       host: '127.0.0.1',
-      port: 8080,
+      port: emulatorPort(),
     },
   })
 })

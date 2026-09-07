@@ -36,3 +36,12 @@ Thumbs.db
 *.log
 .cache/
 tmp/
+
+# --- next.js ---
+.next/
+next-env.d.ts
+tsconfig.tsbuildinfo
+
+# local editor/agent state, except the shared launch config
+.claude/*
+!.claude/launch.json

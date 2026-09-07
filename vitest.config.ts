@@ -7,9 +7,9 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    // The default suite runs fully offline. Rules tests need the emulator and
-    // live in their own config so `npm test` never depends on a running service.
+    // The default suite runs fully offline. Anything needing the emulator lives
+    // in vitest.emulator.config.ts, so `npm test` never depends on a service.
     include: ['tests/**/*.test.ts'],
-    exclude: ['tests/rules/**'],
+    exclude: ['tests/rules/**', 'tests/emulator/**'],
   },
 })

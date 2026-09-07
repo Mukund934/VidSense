@@ -1,5 +1,5 @@
 /**
- * Run the security-rules suite against a Firestore emulator.
+ * Run the emulator-backed suites: security rules and Firestore adapters.
  *
  * Why this exists instead of a bare `firebase emulators:exec`:
  *
@@ -12,16 +12,15 @@
  *      down the whole suite, Firestore included.
  *
  * So: if an emulator is already listening, reuse it. That turns the orphan from
- * a failure into a warm start. Reuse is safe because the suite calls
- * `clearFirestore()` before every test and `initializeTestEnvironment` uploads
- * the current `firestore.rules` on every run — a reused emulator is never a
- * stale one.
+ * a failure into a warm start. Reuse is safe because every suite here clears
+ * the data it touches before it runs, and the rules suite re-uploads the current
+ * `firestore.rules` — a reused emulator is never a stale one.
  */
 
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 
-const VITEST = 'vitest run --config vitest.rules.config.ts'
+const VITEST = 'vitest run --config vitest.emulator.config.ts'
 
 interface FirebaseConfig {
   emulators?: { firestore?: { host?: string; port?: number } }

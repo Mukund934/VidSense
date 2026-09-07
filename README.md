@@ -47,11 +47,11 @@ The default suite runs fully offline against recorded fixtures — no API keys, 
 npm test
 ```
 
-The security rules run against the Firestore emulator. It is started for you, or reused if one is already
-listening on the port in `firebase.json`:
+The security rules and the Firestore adapters run against the Firestore emulator. It is started for you,
+or reused if one is already listening on the port in `firebase.json`:
 
 ```bash
-npm run test:rules
+npm run test:emulator
 ```
 
 Both together, plus types:

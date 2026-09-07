@@ -370,3 +370,39 @@ describe('provenance', () => {
     expect(d.videos.puts).toBe(1)
   })
 })
+
+describe('storage outages never cost the user their transcript', () => {
+  const exploding: HistoryStore = {
+    async touch() {
+      throw new Error('firestore unavailable')
+    },
+  }
+
+  it('still returns a fresh ingest when history cannot be written', async () => {
+    const result = await ingestVideo({ uid: UID, ref }, deps({ history: exploding }))
+    expect(result.status).toBe('ready')
+    expect(result.transcript?.cues.length).toBeGreaterThan(0)
+  })
+
+  it('still serves a cache hit when history cannot be written', async () => {
+    const d = deps()
+    await ingestVideo({ uid: UID, ref }, d)
+    const second = await ingestVideo({ uid: UID, ref }, { ...d, history: exploding })
+    expect(second.fromCache).toBe(true)
+  })
+
+  it('still reports a degraded outcome when history cannot be written', async () => {
+    const failing: TranscriptSource = {
+      id: 'gemini_url',
+      canHandle: () => true,
+      async fetch() {
+        return { ok: false, reason: 'no_transcript' }
+      },
+    }
+    const result = await ingestVideo(
+      { uid: UID, ref },
+      deps({ history: exploding, sources: [failing] }),
+    )
+    expect(result.status).toBe('degraded')
+  })
+})

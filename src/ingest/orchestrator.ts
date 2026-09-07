@@ -121,6 +121,18 @@ function transcriptFromStored(videoId: string, stored: StoredVideo): TimedTransc
   })
 }
 
+/**
+ * Record the open, and never fail the ingest over it.
+ *
+ * History is a convenience: it makes a video easy to find again. The transcript
+ * is the thing the user waited for and the provider was paid for. Losing the
+ * first must never cost the second, so a storage outage degrades to forgetting
+ * rather than to an error.
+ */
+async function touchHistory(deps: IngestDeps, uid: string, entry: HistoryDoc): Promise<void> {
+  await deps.history.touch(uid, entry).catch(() => undefined)
+}
+
 /** In-process single-flight. One server instance; see the note in `ingestVideo`. */
 const inFlight = new Map<string, Promise<IngestResult>>()
 
@@ -138,7 +150,7 @@ export async function ingestVideo(req: IngestRequest, deps: IngestDeps): Promise
   if (existing) {
     const result = await existing
     // The joiner still gets their own history entry.
-    await deps.history.touch(req.uid, historyEntry(videoId, result.metadata, result.status, deps.now()))
+    await touchHistory(deps, req.uid, historyEntry(videoId, result.metadata, result.status, deps.now()))
     return result
   }
 
@@ -162,7 +174,7 @@ async function performIngest(req: IngestRequest, deps: IngestDeps): Promise<Inge
       const transcript = transcriptFromStored(videoId, cached)
       if (transcript) {
         emit({ stage: 'cached' })
-        await deps.history.touch(req.uid, historyEntry(videoId, cached.metadata, 'ready', now))
+        await touchHistory(deps, req.uid, historyEntry(videoId, cached.metadata, 'ready', now))
         emit({ stage: 'ready' })
         return {
           videoId,
@@ -214,7 +226,7 @@ async function performIngest(req: IngestRequest, deps: IngestDeps): Promise<Inge
   emit({ stage: 'storing' })
   const stored = await storeVideo(videoId, meta.metadata, outcome.transcript, now, deps)
 
-  await deps.history.touch(req.uid, historyEntry(videoId, meta.metadata, 'ready', now))
+  await touchHistory(deps, req.uid, historyEntry(videoId, meta.metadata, 'ready', now))
   emit({ stage: 'ready' })
 
   return {
@@ -272,9 +284,7 @@ async function degradedResult(
   metadata: VideoMetadata | undefined,
 ): Promise<IngestResult> {
   deps.onProgress?.({ stage: 'degraded', detail: reason })
-  await deps.history
-    .touch(req.uid, historyEntry(req.ref.videoId, metadata, 'degraded', now))
-    .catch(() => undefined)
+  await touchHistory(deps, req.uid, historyEntry(req.ref.videoId, metadata, 'degraded', now))
 
   return {
     videoId: req.ref.videoId,

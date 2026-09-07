@@ -13,9 +13,9 @@ about it, find the moment something was said, and see the words that back every 
 
 **Early development. There is no web application yet.**
 
-What exists today is the ingestion and retrieval core: a tested TypeScript library that takes a YouTube URL,
-acquires a transcript, stores it, and searches it. The user interface, the chat layer and the answer
-generator are not built.
+What exists today is a tested TypeScript library that takes a YouTube URL, acquires a transcript, stores it,
+searches it, answers questions about it with citations, and exports the evidence. What does not exist is a
+user interface — there is no web application to run.
 
 This README describes what is actually implemented. Where something is planned rather than present, it says so.
 
@@ -30,9 +30,12 @@ This README describes what is actually implemented. Where something is planned r
 | Lexical + interval retrieval over a transcript | ✅ implemented |
 | Untrusted-text sanitising and prompt fencing | ✅ implemented |
 | Timestamp trust model | ✅ implemented |
-| Web app, chat, answer generation | ❌ not started |
-| Comments / "viewers say" | ❌ not started |
-| Evidence Pack export | ❌ not started |
+| Answer layer — cue-index citations, lanes, abstention | ✅ implemented |
+| Prompt-injection suite (8 classes) | ✅ implemented |
+| Comments ingestion for the VIEWERS SAY lane | ✅ implemented |
+| Evidence Pack export | ✅ implemented |
+| Web application | ❌ not started |
+| Answer verifier (does a citation *support* its claim?) | ❌ not started |
 
 ---
 
@@ -115,6 +118,13 @@ earned, not assumed.
   RETRIEVAL                     in-memory over the loaded transcript
       |-- lexical sweep         "every mention of X" - phrases match across cues
       |-- interval logic        "what came before 14:32", "how long on X"
+      |
+      v
+  ANSWER                        transcript in context, fenced as untrusted
+      |                         model returns CUE INDICES, never times or quotes
+      v
+  RECEIPTS                      resolved on our side; out-of-range citations
+                                are dropped, not rendered
 ```
 
 **There is no vector database, no embedding model and no reranker**, and that is a deliberate choice rather
@@ -215,6 +225,11 @@ src/
     sources/         Gemini, user-supplied, YouTube metadata adapters
   retrieval/
     lexical.ts       phrase search that spans cue boundaries
+  answer/
+    contract.ts      what a model may say, and how claims become receipts
+    ask.ts           prompt construction and the question loop
+  export/
+    evidence-pack.ts the takeaway artifact, with a verbatim ceiling
   data/
     schema.ts        Firestore document shapes and collection paths
     firestore.ts     the storage adapters
@@ -261,7 +276,8 @@ VidSense is built to run on free tiers during development and early use.
 - **No web application.** The library is not yet a product.
 - **Timestamps are approximate.** See the guarantees section above. Receipts state their own precision, and
   refuse to offer a jump link when they cannot support one.
-- **No comments, no export, no answer generation** yet.
+- **No answer verifier.** Citations are guaranteed to point at real passages; nothing yet checks that a
+  passage actually *supports* the claim attached to it. That is an entailment problem and it needs a verifier.
 - **Watch history is not available.** YouTube's history playlist has returned empty since 2016; a Takeout
   import is the intended path and is not built.
 - **Videos are never downloaded.** VidSense reads and reasons; it does not store or serve audiovisual bytes.

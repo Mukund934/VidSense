@@ -11,6 +11,7 @@
  */
 
 import type { VideoMetadata } from '@/data/schema'
+import { sanitiseUntrusted } from '@/domain/untrusted'
 import type { MetadataResult, MetadataSource } from '@/ingest/ports'
 
 export interface HttpResponse {
@@ -96,9 +97,12 @@ export function classifyItem(item: ApiItem): MetadataResult {
   }
 
   const metadata: VideoMetadata = {
-    title: snippet.title ?? '',
+    // Titles and channel names are third-party text on the same footing as a
+    // comment: they reach the model, and a zero-width payload in a title is as
+    // effective as one in a transcript.
+    title: sanitiseUntrusted(snippet.title ?? ''),
     channelId: snippet.channelId ?? '',
-    channelTitle: snippet.channelTitle ?? '',
+    channelTitle: sanitiseUntrusted(snippet.channelTitle ?? ''),
     publishedAt: snippet.publishedAt ?? '',
     durationSec: parseIsoDuration(item.contentDetails?.duration),
     ...(bestThumbnail(snippet.thumbnails) ? { thumbnailUrl: bestThumbnail(snippet.thumbnails)! } : {}),

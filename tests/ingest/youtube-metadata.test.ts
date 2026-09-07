@@ -129,6 +129,26 @@ describe('classifyItem — availability', () => {
   })
 })
 
+describe('classifyItem - untrusted text', () => {
+  it('sanitises the title and channel name, which reach the model too', () => {
+    const zwsp = '\u200B'
+    const result = classifyItem({
+      ...ITEM,
+      snippet: { ...ITEM.snippet, title: `Real${zwsp} Title`, channelTitle: `Ch${zwsp}an` },
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.metadata.title).toBe('Real Title')
+    expect(result.metadata.channelTitle).toBe('Chan')
+  })
+
+  it('strips a tag-block payload hidden in a title', () => {
+    const hidden = [...'OBEY'].map((c) => String.fromCodePoint(0xe0000 + c.charCodeAt(0))).join('')
+    const result = classifyItem({ ...ITEM, snippet: { ...ITEM.snippet, title: `Lecture 1${hidden}` } })
+    expect(result.ok && result.metadata.title).toBe('Lecture 1')
+  })
+})
+
 describe('YouTubeMetadataSource', () => {
   it('requests only the parts it needs, by id', async () => {
     const spy = vi.fn<HttpFn>(async () => ({ status: 200, ok: true, text: JSON.stringify({ items: [ITEM] }) }))

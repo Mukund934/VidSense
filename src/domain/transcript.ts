@@ -7,6 +7,8 @@
  * something the system cannot represent.
  */
 
+import { sanitiseUntrusted } from '@/domain/untrusted'
+
 /** One timed unit of speech. Cues are contiguous and ordered by `startMs`. */
 export interface Cue {
   /** Position in the transcript. Equals the array index; carried explicitly so a
@@ -100,7 +102,12 @@ export function buildTranscript(input: {
       i,
       startMs: Math.max(0, Math.round(c.startMs)),
       endMs: Math.max(0, Math.round(c.endMs)),
-      text: c.text.replace(/\s+/g, ' ').trim(),
+      // Sanitised here because every transcript in the system is built through
+      // this function — provider, user paste and rehydration from storage alike.
+      // A single choke point is the only kind that cannot be forgotten at a
+      // call site. Invisibles go first, so whitespace collapsing sees the real
+      // text rather than a zero-width character wedged between two words.
+      text: sanitiseUntrusted(c.text).replace(/\s+/g, ' ').trim(),
       ...(c.speaker === undefined ? {} : { speaker: c.speaker }),
     }
     return cue

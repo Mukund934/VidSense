@@ -30,7 +30,15 @@ export interface GeminiConfig {
   readonly baseUrl?: string
 }
 
-const DEFAULT_MODEL = 'gemini-2.5-flash'
+/**
+ * Verified against the live model list on 2026-09-07. The previous default,
+ * `gemini-2.5-flash`, returns HTTP 404 — "no longer available to new users" —
+ * so it was not a fallback, it was an outage.
+ *
+ * Flash-Lite is the cheapest tier that accepts a YouTube URL, which §25.1 also
+ * picked for transcript build. Injectable, because this line has a shelf life.
+ */
+const DEFAULT_MODEL = 'gemini-3.5-flash-lite'
 const DEFAULT_BASE = 'https://generativelanguage.googleapis.com/v1beta'
 
 const PROMPT =

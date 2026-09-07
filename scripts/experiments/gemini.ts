@@ -10,10 +10,12 @@ import {
   GEMINI_BASE,
   GEMINI_MODEL,
   type ExperimentResult,
+  type Verdict,
   blocked,
   http,
   pick,
   requireEnv,
+  videoDurationSec,
 } from './lib.js'
 
 function key(): string | null {
@@ -143,8 +145,15 @@ export async function clipSupport(videoId = DEFAULT_VIDEO_ID): Promise<Experimen
  * The gating experiment for the entire product. If the model's timestamps drift,
  * "jump to moment" is dead and receipts degrade to quote-only.
  *
- * This measures SELF-CONSISTENCY, which is a necessary condition, not a sufficient
- * one. Ground truth needs a caption track you own — see the note in the output.
+ * Two checks, and the second is the one that matters. Monotonicity is necessary
+ * but weak — a transcript can be perfectly ordered and still run minutes past
+ * the end of the video, which is precisely the failure that breaks seeking. So
+ * the cues are also bounded against the video's real duration, which costs one
+ * quota unit and needs no caption track of our own.
+ *
+ * What is still not measured: per-cue accuracy. A transcript can be ordered and
+ * in-bounds and still put each line in the wrong place. That needs ground truth
+ * from a video you own, and it remains the real C1.
  */
 export async function c1Drift(videoId = DEFAULT_VIDEO_ID): Promise<ExperimentResult> {
   const apiKey = key()
@@ -202,23 +211,66 @@ export async function c1Drift(videoId = DEFAULT_VIDEO_ID): Promise<ExperimentRes
   const monotonic = times.every((t, i) => i === 0 || t >= times[i - 1]!)
   const gaps = times.slice(1).map((t, i) => t - times[i]!)
   const maxGap = gaps.length ? Math.max(...gaps) : 0
+  const lastT = times[times.length - 1] ?? 0
+
+  // The hard bound. Monotonicity alone is a weak test — a transcript can be
+  // perfectly ordered and still run minutes past the end of the video, which is
+  // exactly the failure that kills "jump to moment". The video's own duration
+  // costs one quota unit and settles it without needing a caption track we own.
+  const durationSec = await videoDurationSec(videoId)
+  const overshoot = durationSec === null ? null : lastT - durationSec
+  // A few seconds past the end is rounding. Half a minute is drift.
+  const TOLERANCE_SEC = 5
+  const overshot = overshoot !== null && overshoot > TOLERANCE_SEC
+  // A transcript that stops a third of the way in is the same defect mirrored.
+  const coverage = durationSec ? lastT / durationSec : null
+  const truncated = coverage !== null && coverage < 0.5
+
+  const verdict: Verdict =
+    !monotonic || overshot ? 'FAIL' : cues.length <= 5 || truncated ? 'INCONCLUSIVE' : 'PASS'
+
+  let finding: string
+  if (!monotonic) {
+    finding =
+      'Timestamps are NOT monotonic. Treat jump-to-moment as unproven and hold the quote-only fallback.'
+  } else if (overshot) {
+    finding =
+      `DRIFT: the last cue is at ${lastT}s but the video is ${durationSec}s — ` +
+      `${overshoot}s (${Math.round((overshoot! / durationSec!) * 100)}%) past the end. ` +
+      'Timestamps from this model cannot be trusted for seeking. Try another model before ' +
+      'accepting quote-only receipts.'
+  } else if (truncated) {
+    finding =
+      `Cues stop at ${lastT}s of a ${durationSec}s video (${Math.round(coverage! * 100)}% covered). ` +
+      'Ordered and in-bounds, but incomplete — windowed ingest may be required.'
+  } else if (durationSec === null) {
+    finding =
+      `Returned ${cues.length} cues, monotonic, last at ${lastT}s. Self-consistent only — ` +
+      'set YOUTUBE_API_KEY to check them against the real duration.'
+  } else {
+    finding =
+      `Returned ${cues.length} cues, monotonic, last at ${lastT}s of ${durationSec}s ` +
+      `(${Math.round(coverage! * 100)}% covered, within tolerance). Timestamps are usable for seeking.`
+  }
 
   return {
     id: 'C1-timestamp-drift',
     question: 'Do Gemini timestamps on a YouTube URL land accurately?',
-    verdict: monotonic && cues.length > 5 ? 'PASS' : 'INCONCLUSIVE',
-    finding: monotonic
-      ? `Returned ${cues.length} cues, monotonically ordered, last at ${times[times.length - 1] ?? 0}s. Self-consistent — but ground truth still requires comparison against a caption track you own.`
-      : 'Timestamps are NOT monotonic. Treat the jump-to-moment feature as unproven and hold the quote-only fallback.',
+    verdict,
+    finding,
     evidence: {
+      model: GEMINI_MODEL,
       cueCount: cues.length,
       firstT: times[0],
-      lastT: times[times.length - 1],
+      lastT,
+      durationSec,
+      overshootSec: overshoot,
+      coverage: coverage === null ? null : Number(coverage.toFixed(3)),
       monotonic,
       maxGapSeconds: maxGap,
       latencyMs: res.ms,
       promptTokens: pick(res.json, 'usageMetadata.promptTokenCount'),
-      NEXT: 'Upload a video you own with a known caption track, re-run, and compare cue starts to ground truth. That is the real C1.',
+      NEXT: 'Bounds are checked against the real duration. Per-cue accuracy still needs a caption track you own.',
     },
     ranAt: new Date().toISOString(),
   }

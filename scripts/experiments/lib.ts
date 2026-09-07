@@ -112,4 +112,39 @@ export function blocked(id: string, question: string, what: string): ExperimentR
 /** A long, caption-bearing public video makes drift visible; override with EXPERIMENT_VIDEO_ID. */
 export const DEFAULT_VIDEO_ID = process.env['EXPERIMENT_VIDEO_ID'] ?? 'dQw4w9WgXcQ'
 export const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta'
-export const GEMINI_MODEL = process.env['GEMINI_MODEL'] ?? 'gemini-2.5-flash'
+export const GEMINI_MODEL = process.env['GEMINI_MODEL'] ?? 'gemini-3.5-flash-lite'
+
+/**
+ * The video's real duration, from the 1-unit `videos.list` call.
+ *
+ * This is what turns C1 from a self-consistency check into a drift measurement.
+ * A transcript whose last cue sits past the end of the video is provably wrong,
+ * and proving it needs no caption track of our own — just the duration, which
+ * is the cheapest fact the YouTube API sells.
+ *
+ * Returns null when the key is absent or the call fails; the caller degrades to
+ * self-consistency and says so rather than inventing a bound.
+ */
+export async function videoDurationSec(videoId: string): Promise<number | null> {
+  const apiKey = requireEnv('YOUTUBE_API_KEY')
+  if (!apiKey) return null
+
+  const url =
+    `https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=${encodeURIComponent(videoId)}`
+  try {
+    const res = await fetch(url, { headers: { 'x-goog-api-key': apiKey } })
+    if (!res.ok) return null
+    const body = (await res.json()) as {
+      items?: Array<{ contentDetails?: { duration?: string } }>
+    }
+    const iso = body.items?.[0]?.contentDetails?.duration
+    if (typeof iso !== 'string') return null
+
+    const m = /^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso)
+    if (!m) return null
+    const [d, h, min, s] = [m[1], m[2], m[3], m[4]].map((v) => Number(v ?? 0))
+    return ((d! * 24 + h!) * 60 + min!) * 60 + s!
+  } catch {
+    return null
+  }
+}

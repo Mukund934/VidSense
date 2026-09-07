@@ -22,8 +22,18 @@ import {
   terminalFor,
 } from '@/ingest/source'
 
-/** Videos beyond this are refused before any provider call. */
-export const MAX_DURATION_SEC = 8 * 60 * 60
+/**
+ * Videos beyond this are refused before any provider call.
+ *
+ * Measured, not guessed. The Gemini YouTube-URL path bills ~103 prompt tokens
+ * per second of video (19,394 tokens for a 214s video, 2026-09-07), against a
+ * 1,048,576-token input limit — so the ceiling is about 2.8 hours in one call.
+ * The old value of 8 hours would have accepted videos that could only fail at
+ * the provider, after paying for the attempt.
+ *
+ * Held at 2.5h for prompt overhead and for the variance between models.
+ */
+export const MAX_DURATION_SEC = Math.round(2.5 * 60 * 60)
 
 function degradedReasonFor(reason: FailureReason): DegradedReason {
   switch (reason) {

@@ -9,7 +9,14 @@ import { fileURLToPath } from 'node:url'
 // runnable offline, for free, with no service of any kind.
 export default defineConfig({
   resolve: {
-    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+    // Ordered: the more specific prefixes must win over the bare `@/` -> src.
+    alias: [
+      { find: /^server-only$/, replacement: fileURLToPath(new URL('./tests/support/server-only.ts', import.meta.url)) },
+      { find: /^@\/lib\//, replacement: fileURLToPath(new URL('./lib/', import.meta.url)) },
+      { find: /^@\/components\//, replacement: fileURLToPath(new URL('./components/', import.meta.url)) },
+      { find: /^@\/app\//, replacement: fileURLToPath(new URL('./app/', import.meta.url)) },
+      { find: /^@\//, replacement: fileURLToPath(new URL('./src/', import.meta.url)) },
+    ],
   },
   test: {
     environment: 'node',

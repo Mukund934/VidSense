@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildTranscript, resolveReceipt, type TimedTranscript } from '@/domain/transcript'
 import { timingFor } from '@/domain/timing'
 import { MAX_VERBATIM_WORDS } from '@/export/evidence-pack'
+import type { Verdict } from '@/answer/verify'
 
 const metadata = {
   title: 'A Talk / With Slashes',
@@ -41,7 +42,11 @@ vi.mock('@/answer/ask', async (original) => {
 })
 
 const verifyEnabled = vi.fn(() => false)
-const verifyImpl = vi.fn(async () => ({ entailment: 'supported' as const }))
+// Typed on the union rather than inferred from the default, or a test that
+// returns not_supported fails to compile while still passing under Vitest.
+const verifyImpl = vi.fn<(input: { claim: string; evidence: string }) => Promise<Verdict>>(
+  async () => ({ entailment: 'supported' }),
+)
 
 vi.mock('@/lib/server/deps', () => ({
   completion: () => async () => '[]',

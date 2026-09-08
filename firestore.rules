@@ -114,6 +114,17 @@ service cloud.firestore {
           && request.resource.data.tMs >= 0;
       }
 
+      // ---- imported watch history ------------------------------------------
+      // One compressed document, not one per watched video: a year of history
+      // is tens of thousands of entries and the free tier allows 20,000 writes
+      // a day in total. Written only by the server, so a client cannot stuff an
+      // oversized blob into its own quota.
+
+      match /watched/{docId} {
+        allow read, delete: if isOwner(uid);
+        allow write: if false;
+      }
+
       match /bookmarks/{bookmarkId} {
         allow read, delete: if isOwner(uid);
         allow create, update: if isOwner(uid)

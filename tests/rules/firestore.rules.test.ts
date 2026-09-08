@@ -299,3 +299,38 @@ describe('default deny', () => {
     await assertFails(setDoc(doc(alice(), 'billing/alice'), { plan: 'pro' }))
   })
 })
+
+describe('imported watch history', () => {
+  const path = (uid: string) => `users/${uid}/watched/imported`
+
+  it('lets the owner read their own import', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), path(ALICE)), { importedAt: 1, count: 3 })
+    })
+    await assertSucceeds(getDoc(doc(alice(), path(ALICE))))
+  })
+
+  it('denies another user reading it', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), path(ALICE)), { importedAt: 1, count: 3 })
+    })
+    await assertFails(getDoc(doc(bob(), path(ALICE))))
+  })
+
+  it('lets the owner delete it, so data deletion works', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), path(ALICE)), { importedAt: 1, count: 3 })
+    })
+    await assertSucceeds(deleteDoc(doc(alice(), path(ALICE))))
+  })
+
+  it('denies a client writing it, however large', async () => {
+    // Only the server writes this. A client that could would be writing an
+    // unbounded blob into a shared free-tier quota.
+    await assertFails(setDoc(doc(alice(), path(ALICE)), { importedAt: 1, count: 1 }))
+  })
+
+  it('denies another user writing it', async () => {
+    await assertFails(setDoc(doc(bob(), path(ALICE)), { importedAt: 1, count: 1 }))
+  })
+})

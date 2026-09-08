@@ -20,6 +20,7 @@ import { readFileSync } from 'node:fs'
 
 import { FirestoreAnnotationStore, type AnnotationStore } from '@/data/annotations'
 import { FirestoreHistoryStore, FirestoreVideoStore } from '@/data/firestore'
+import { FirestoreWatchHistoryStore, type WatchHistoryStore } from '@/data/watch-history'
 import { GeminiUrlSource } from '@/ingest/sources/gemini-url'
 import { UserSuppliedSource } from '@/ingest/sources/user-supplied'
 import { YouTubeCommentsSource } from '@/ingest/sources/youtube-comments'
@@ -147,6 +148,12 @@ export function historyStore(): HistoryStore {
 export function annotationStore(): AnnotationStore | null {
   const db = firestore()
   return db ? new FirestoreAnnotationStore(db) : null
+}
+
+/** Imported watch history. Absent storage is reported, not swallowed. */
+export function watchHistoryStore(): WatchHistoryStore | null {
+  const db = firestore()
+  return db ? new FirestoreWatchHistoryStore(db) : null
 }
 
 // -------------------------------------------------------------------- sources

@@ -52,6 +52,11 @@ export async function deleteUserData(uid: string): Promise<{ deleted: number }> 
     deleted += history.size
     const conversations = await db.collection(paths.conversations(uid)).get()
     deleted += conversations.size
+    // Notes, bookmarks and any imported watch history live under the same root
+    // and go with it; counted so the confirmation is not an understatement.
+    for (const name of ['notes', 'bookmarks', 'watched']) {
+      deleted += (await db.collection(`${paths.user(uid)}/${name}`).get()).size
+    }
 
     await db.recursiveDelete(root)
     return { deleted }

@@ -3,6 +3,7 @@ import { formatTimestamp } from '@/domain/transcript'
 import { capabilities } from '@/lib/server/deps'
 import { listHistory } from '@/lib/server/history'
 import { currentUid } from '@/lib/server/session'
+import { TakeoutImport } from '@/components/takeout-import'
 
 export const dynamic = 'force-dynamic'
 
@@ -68,6 +69,8 @@ export default async function HistoryPage() {
           </li>
         ))}
       </ul>
+
+      <TakeoutImport />
     </div>
   )
 }

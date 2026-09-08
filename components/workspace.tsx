@@ -7,6 +7,7 @@ import type { Answer } from '@/answer/contract'
 import type { Receipt } from '@/domain/transcript'
 import { formatTimestamp } from '@/domain/transcript'
 import { ChatPanel, type Turn } from '@/components/chat-panel'
+import { MarksPanel } from '@/components/marks-panel'
 import { Player, type PlayerHandle } from '@/components/player'
 import { TranscriptPanel } from '@/components/transcript-panel'
 import { ViewersPanel } from '@/components/viewers-panel'
@@ -27,12 +28,13 @@ const STAGE_COPY: Record<IngestStage, string> = {
 
 const STAGE_ORDER: IngestStage[] = ['metadata', 'transcript', 'storing', 'ready']
 
-type Tab = 'transcript' | 'chat' | 'viewers'
+type Tab = 'transcript' | 'chat' | 'viewers' | 'marks'
 
 const TABS: ReadonlyArray<readonly [Tab, string]> = [
   ['chat', 'Ask'],
   ['transcript', 'Transcript'],
   ['viewers', 'Viewers say'],
+  ['marks', 'Marks'],
 ]
 
 export function Workspace({ videoId }: { videoId: string }) {
@@ -155,10 +157,20 @@ export function Workspace({ videoId }: { videoId: string }) {
         .map((c) => ({ heading: turn.question, receipt: c.receipt })),
     )
 
+    // Marks are the user's own work and belong in what they take away. Fetched
+    // at export time rather than mirrored in state, so the pack reflects what is
+    // actually saved instead of what this tab happens to remember.
+    const notes = await fetch(`/api/annotations?videoId=${encodeURIComponent(videoId)}`)
+      .then(async (r) => {
+        const body = (await r.json()) as { annotations?: Array<{ tMs: number; text: string }> }
+        return (body.annotations ?? []).filter((a) => a.text.trim().length > 0)
+      })
+      .catch(() => [])
+
     const res = await fetch('/api/export', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ videoId, entries }),
+      body: JSON.stringify({ videoId, entries, notes }),
     })
     if (!res.ok) return
 
@@ -207,7 +219,7 @@ export function Workspace({ videoId }: { videoId: string }) {
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
         <div className="space-y-3">
           <Player videoId={videoId} onTime={setCurrentMs} ref={player} />
-          {hasReceipts && (
+          {(hasReceipts || tab === 'marks') && (
             <button
               type="button"
               onClick={() => void exportPack()}
@@ -254,6 +266,9 @@ export function Workspace({ videoId }: { videoId: string }) {
                 <p className="p-6 text-sm text-muted">No transcript is available for this video.</p>
               ))}
             {tab === 'viewers' && <ViewersPanel key={videoId} videoId={videoId} />}
+            {tab === 'marks' && (
+              <MarksPanel key={videoId} videoId={videoId} currentMs={currentMs} onSeek={seek} />
+            )}
           </div>
         </div>
       </div>

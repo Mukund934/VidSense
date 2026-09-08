@@ -18,6 +18,7 @@ import { cert, getApps, initializeApp, type App } from 'firebase-admin/app'
 import { getFirestore, type Firestore } from 'firebase-admin/firestore'
 import { readFileSync } from 'node:fs'
 
+import { FirestoreAnnotationStore, type AnnotationStore } from '@/data/annotations'
 import { FirestoreHistoryStore, FirestoreVideoStore } from '@/data/firestore'
 import { GeminiUrlSource } from '@/ingest/sources/gemini-url'
 import { UserSuppliedSource } from '@/ingest/sources/user-supplied'
@@ -134,6 +135,18 @@ export function historyStore(): HistoryStore {
       try { await real.touch(uid, entry) } catch { /* forgetting is survivable */ }
     },
   }
+}
+
+/**
+ * Marks are the one store that reports absence instead of swallowing it.
+ *
+ * A dropped cache entry costs a re-ingest. A dropped note is the user's own
+ * writing, gone — so when there is nowhere to put it, the caller is told rather
+ * than left believing it saved.
+ */
+export function annotationStore(): AnnotationStore | null {
+  const db = firestore()
+  return db ? new FirestoreAnnotationStore(db) : null
 }
 
 // -------------------------------------------------------------------- sources

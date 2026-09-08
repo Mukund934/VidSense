@@ -17,7 +17,8 @@
     "test:all": "npm run test && npm run test:emulator",
     "typecheck": "tsc --noEmit",
     "emulators": "firebase emulators:start --only auth,firestore",
-    "experiment": "tsx scripts/experiments/run.ts"
+    "experiment": "tsx scripts/experiments/run.ts",
+    "lint": "next lint --dir app --dir components --dir lib"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.2",
@@ -25,6 +26,8 @@
     "@types/node": "^22.10.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.3.4",
     "firebase": "^12.18.0",
     "postcss": "^8.5.28",
     "tailwindcss": "^4.3.3",

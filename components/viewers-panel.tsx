@@ -22,9 +22,11 @@ const REASON_COPY: Record<string, string> = {
 export function ViewersPanel({ videoId }: { videoId: string }) {
   const [state, setState] = useState<State>({ kind: 'loading' })
 
+  // Remounted per video by a key at the call site, so the initial state is
+  // already correct and the effect has no reason to reset it — doing so
+  // synchronously would cascade a render on every mount.
   useEffect(() => {
     let cancelled = false
-    setState({ kind: 'loading' })
 
     fetch(`/api/comments?videoId=${encodeURIComponent(videoId)}`)
       .then(async (res) => {

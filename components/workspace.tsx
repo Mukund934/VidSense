@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { IngestResult, IngestStage } from '@/ingest/orchestrator'
 import type { Answer } from '@/answer/contract'
@@ -250,7 +251,7 @@ export function Workspace({ videoId }: { videoId: string }) {
               ) : (
                 <p className="p-6 text-sm text-muted">No transcript is available for this video.</p>
               ))}
-            {tab === 'viewers' && <ViewersPanel videoId={videoId} />}
+            {tab === 'viewers' && <ViewersPanel key={videoId} videoId={videoId} />}
           </div>
         </div>
       </div>
@@ -291,9 +292,9 @@ function Failed({ message }: { message: string }) {
     <div className="mx-auto max-w-md px-4 py-24 text-center">
       <h1 className="text-lg font-semibold">That did not work</h1>
       <p className="mt-2 text-sm text-muted">{message}</p>
-      <a href="/" className="mt-6 inline-block text-sm text-accent underline underline-offset-2">
+      <Link href="/" className="mt-6 inline-block text-sm text-accent underline underline-offset-2">
         Try another video
-      </a>
+      </Link>
     </div>
   )
 }

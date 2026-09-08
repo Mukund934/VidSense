@@ -37,7 +37,6 @@ export function AnalyzeForm({ autoFocus = false }: { autoFocus?: boolean }) {
         </label>
         <input
           id="video-url"
-          // eslint-disable-next-line jsx-a11y/no-autofocus -- it is the only field on the page
           autoFocus={autoFocus}
           value={value}
           onChange={(e) => {

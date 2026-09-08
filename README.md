@@ -37,7 +37,7 @@ This README describes what is actually implemented. Where something is planned r
 | Web application — landing, workspace, player, chat, history, settings | ✅ implemented |
 | Google sign-in over a server-verified session | ✅ implemented |
 | Data deletion | ✅ implemented |
-| Answer verifier (does a citation *support* its claim?) | ❌ not started |
+| Entailment gate — does a citation *support* its claim? | ✅ implemented, off by default |
 | Notes, bookmarks, Takeout history import | ❌ not started |
 
 ---
@@ -52,7 +52,7 @@ That last part is doing real work, and it is worth being specific about.
 
 ### Timestamp guarantees, and their limits
 
-**Two different things can go wrong with a citation, and VidSense currently solves one of them.**
+**Three different things can go wrong with a citation.**
 
 **Solved — a citation cannot point at text that does not exist.** The model never emits a timestamp. It emits
 a *cue index*, and `resolveReceipt()` resolves that index against the transcript we hold, throwing on anything
@@ -71,6 +71,17 @@ provider bounds clip content exactly, so a narrow clip is an authoritative answe
 
 The overshoot is roughly proportional but **not** a constant factor, so rescaling helps a great deal and does
 not make it exact.
+
+**Optional — a citation that points somewhere real but does not support its claim.** A model can cite a real
+passage for a statement that passage does not back, and the result looks exactly like evidence. The entailment
+gate checks each claim against its own quote, with the question deliberately withheld so a verifier told what
+answer was wanted cannot confirm it. A claim whose citation fails keeps its words and **loses its receipt**.
+
+It is off by default (`VERIFY_ANSWERS=1` turns it on) because it costs roughly one extra model call per claim.
+Measured on 2026-09-08 over 35 labelled pairs: **0 false positives on 15 definitively-true citations**, 100%
+recall on 10 cross-video mismatches. That was the number worth blocking on — a gate that destroys correct
+receipts would damage the product more than the problem it fixes. Its recall on *near-miss* pairings, where a
+claim is cited to an adjacent passage that almost supports it, is **not** measured.
 
 **So VidSense does not claim exactness it cannot deliver.** Every transcript carries a `TimingSource` and a
 tolerance, every receipt inherits them, and the precision is derived rather than assumed:
@@ -290,8 +301,10 @@ VidSense is built to run on free tiers during development and early use.
 
 - **Timestamps are approximate.** See the guarantees section above. Receipts state their own precision, and
   refuse to offer a jump link when they cannot support one.
-- **No answer verifier.** Citations are guaranteed to point at real passages; nothing yet checks that a
-  passage actually *supports* the claim attached to it. That is an entailment problem and it needs a verifier.
+- **The entailment gate is off by default** and its recall on near-miss pairings is unmeasured. It is proven
+  not to destroy correct citations, which is a different and weaker claim than being proven to catch bad ones.
+- **Generator and verifier are the same model family.** A cross-vendor verifier would be stronger; the
+  architecture rules v1 to a single provider, so this is noted rather than solved.
 - **Watch history is not available.** YouTube's history playlist has returned empty since 2016; a Takeout
   import is the intended path and is not built.
 - **Videos are never downloaded.** VidSense reads and reasons; it does not store or serve audiovisual bytes.

@@ -38,8 +38,8 @@ This README describes what is actually implemented. Where something is planned r
 | Google sign-in over a server-verified session | ✅ implemented |
 | Data deletion | ✅ implemented |
 | Notes and bookmarks | ✅ implemented |
+| Takeout watch-history import | ✅ implemented |
 | Entailment gate — does a citation *support* its claim? | ✅ implemented, off by default |
-| Takeout history import | ❌ not started |
 
 ---
 
@@ -251,6 +251,7 @@ src/
     untrusted.ts     sanitising and prompt fencing for third-party text
   ingest/
     url.ts           YouTube URL parsing and host allowlist
+    takeout.ts       Google Takeout history parsing, client-side
     source.ts        the TranscriptSource port and degraded modes
     chain.ts         the fallback chain
     orchestrator.ts  cache, single-flight, provenance, storage
@@ -266,6 +267,7 @@ src/
     schema.ts        Firestore document shapes and collection paths
     firestore.ts     the storage adapters
     annotations.ts   notes and bookmarks, whose timestamps are exact
+    watch-history.ts an imported history, as one compressed document
 scripts/experiments/ live-provider probes
 tests/               offline suite, plus tests/emulator and tests/rules
 ```
@@ -295,7 +297,8 @@ problem, not a normalisation one.
 VidSense is built to run on free tiers during development and early use.
 
 - One document per video, not one per cue — the difference between roughly 6,600 and 13 videos per day on
-  Firestore's free quota.
+  Firestore's free quota. An imported watch history is stored the same way, for the same reason: a year of
+  viewing is tens of thousands of entries against a budget of 20,000 writes a day.
 - The `videos/{id}` document **is** the cache. No separate cache tier.
 - `videos.list` costs 1 quota unit and is the only metadata call; `search.list` costs 100 and is never used.
 - No vector database, no object storage, no queue, no media pipeline.
@@ -312,8 +315,9 @@ VidSense is built to run on free tiers during development and early use.
   not to destroy correct citations, which is a different and weaker claim than being proven to catch bad ones.
 - **Generator and verifier are the same model family.** A cross-vendor verifier would be stronger; the
   architecture rules v1 to a single provider, so this is noted rather than solved.
-- **Watch history is not available.** YouTube's history playlist has returned empty since 2016; a Takeout
-  import is the intended path and is not built.
+- **Watch history comes from Takeout, not an API.** YouTube's history playlist has returned empty since 2016,
+  and the Data Portability API is EU/Switzerland/UK only. The import reads your archive **in the browser** and
+  sends only video ids and watch times; it stores no titles, so the watched list shows ids until you open one.
 - **Videos are never downloaded.** VidSense reads and reasons; it does not store or serve audiovisual bytes.
 - Long videos beyond the measured single-call ceiling are refused rather than truncated.
 

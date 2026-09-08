@@ -12,9 +12,10 @@
  * passage that does, because it never supplies the words.
  *
  * What it *can* still do is cite a real passage that does not support the
- * claim. That is an entailment failure, and no amount of index discipline
- * catches it — it needs a verifier, which is not built yet. Saying so plainly
- * is part of the contract.
+ * claim. That is an entailment failure and no amount of index discipline
+ * catches it; `src/answer/verify.ts` is the gate for that, and per D32 it runs
+ * offline rather than in the request path until O20 has measured what it costs
+ * in wrongly-rejected good citations.
  */
 
 import { type Receipt, type TimedTranscript, resolveReceipt } from '@/domain/transcript'
@@ -36,8 +37,16 @@ export interface RawClaim {
 export interface AnswerClaim {
   readonly text: string
   readonly lane: Lane
-  /** Null only for lanes that are not grounded in the video. */
+  /**
+   * Null for lanes that are not grounded in the video, and for a VIDEO claim
+   * whose citation the verifier found does not support it.
+   */
   readonly receipt: Receipt | null
+  /**
+   * Present only when the entailment gate has run. Absent means unchecked,
+   * which is a different thing from checked-and-fine — see src/answer/verify.ts.
+   */
+  readonly verification?: { readonly entailment: string; readonly detail?: string }
 }
 
 export type AnswerStatus =

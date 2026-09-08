@@ -40,10 +40,15 @@ vi.mock('@/answer/ask', async (original) => {
   return { ...actual, ask: (...args: unknown[]) => askImpl(...args) }
 })
 
+const verifyEnabled = vi.fn(() => false)
+const verifyImpl = vi.fn(async () => ({ entailment: 'supported' as const }))
+
 vi.mock('@/lib/server/deps', () => ({
   completion: () => async () => '[]',
   ModelUnavailableError: class extends Error {},
   commentsSource: () => ({ fetch: async () => ({ ok: false, reason: 'disabled' as const }) }),
+  verificationEnabled: () => verifyEnabled(),
+  verifier: () => verifyImpl,
 }))
 
 const post = (url: string, body: unknown) =>
@@ -56,6 +61,10 @@ const post = (url: string, body: unknown) =>
 beforeEach(() => {
   loadVideo.mockReset()
   askImpl.mockReset()
+  verifyEnabled.mockReset()
+  verifyEnabled.mockReturnValue(false)
+  verifyImpl.mockReset()
+  verifyImpl.mockResolvedValue({ entailment: 'supported' })
 })
 
 describe('POST /api/ask', () => {
@@ -92,6 +101,48 @@ describe('POST /api/ask', () => {
     const res = await call({ videoId: 'vid12345678', question: 'why?' })
     expect(res.status).toBe(200)
     expect((await res.json()).answer.status).toBe('answered')
+  })
+
+  describe('the entailment gate', () => {
+    const withClaim = () => {
+      loadVideo.mockResolvedValue({ metadata, transcript: transcriptOf(['the real words']) })
+      askImpl.mockResolvedValue({
+        status: 'answered',
+        claims: [
+          {
+            text: 'a claim',
+            lane: 'VIDEO',
+            receipt: resolveReceipt(transcriptOf(['the real words']), 0, 0),
+          },
+        ],
+        rejected: [],
+      })
+    }
+
+    it('does not run when the flag is off, so an answer costs one call', async () => {
+      withClaim()
+      const body = await (await call({ videoId: 'vid12345678', question: 'why?' })).json()
+      expect(verifyImpl).not.toHaveBeenCalled()
+      expect(body.answer.claims[0].verification).toBeUndefined()
+    })
+
+    it('runs when the flag is on and marks a checked claim', async () => {
+      withClaim()
+      verifyEnabled.mockReturnValue(true)
+      const body = await (await call({ videoId: 'vid12345678', question: 'why?' })).json()
+      expect(verifyImpl).toHaveBeenCalledTimes(1)
+      expect(body.answer.claims[0].verification.entailment).toBe('supported')
+    })
+
+    it('strips the receipt when the citation does not support the claim', async () => {
+      withClaim()
+      verifyEnabled.mockReturnValue(true)
+      verifyImpl.mockResolvedValue({ entailment: 'not_supported' })
+
+      const body = await (await call({ videoId: 'vid12345678', question: 'why?' })).json()
+      expect(body.answer.claims[0].receipt).toBeNull()
+      expect(body.answer.claims[0].text).toBe('a claim')
+    })
   })
 
   it('never lets the caller supply the transcript it is cited against', async () => {

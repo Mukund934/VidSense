@@ -91,6 +91,7 @@ export function ChatPanel({
                   text={claim.text}
                   lane={claim.lane}
                   receipt={claim.receipt}
+                  verification={claim.verification}
                   onSeek={onSeek}
                 />
               ))}

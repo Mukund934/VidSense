@@ -16,11 +16,13 @@ export function ReceiptCard({
   text,
   lane,
   receipt,
+  verification,
   onSeek,
 }: {
   text: string
   lane: string
   receipt: Receipt | null
+  verification?: { entailment: string } | undefined
   onSeek?: (ms: number) => void
 }) {
   const seekable = receipt !== null && precisionOf(receipt.timing) !== 'unlocated'
@@ -30,6 +32,14 @@ export function ReceiptCard({
       <div className="mb-2 flex flex-wrap items-center gap-1.5">
         <LaneBadge lane={lane} />
         {receipt && <PrecisionBadge timing={receipt.timing} />}
+        {verification?.entailment === 'supported' && (
+          <span
+            className="inline-flex shrink-0 items-center rounded-full border border-exact/40 bg-exact-soft px-2 py-0.5 text-[11px] font-medium text-exact"
+            title="A second pass checked this quote against the claim and found it supports it."
+          >
+            checked
+          </span>
+        )}
       </div>
 
       <p className="text-[15px] leading-relaxed">{text}</p>
@@ -55,6 +65,15 @@ export function ReceiptCard({
             )}
           </div>
         </div>
+      )}
+
+      {verification?.entailment === 'not_supported' && (
+        // The claim keeps its words and loses its evidence. Saying why is the
+        // point: a silently receipt-less claim looks like one nobody checked.
+        <p className="mt-3 rounded border border-approx/40 bg-approx-soft px-2.5 py-2 text-xs">
+          The passage this cited does not support the statement, so the citation was removed.
+          The statement itself may still be true — it is not evidenced here.
+        </p>
       )}
 
       {!receipt && lane !== 'VIDEO' && (

@@ -1,7 +1,13 @@
 import { NextRequest } from 'next/server'
 
 import { ask } from '@/answer/ask'
-import { completion, ModelUnavailableError } from '@/lib/server/deps'
+import { verifyAnswer } from '@/answer/verify'
+import {
+  completion,
+  ModelUnavailableError,
+  verificationEnabled,
+  verifier,
+} from '@/lib/server/deps'
 import { loadVideo } from '@/lib/server/video'
 
 export const runtime = 'nodejs'
@@ -42,7 +48,15 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   try {
     const answer = await ask(video.transcript, question, completion())
-    return Response.json({ answer })
+
+    // Off unless asked for: one extra call per claim is a real cost, and D32
+    // keeps gate 3 out of the request path until that trade is made
+    // deliberately. O20 established it is safe to switch on, not that it is free.
+    const checked = verificationEnabled()
+      ? await verifyAnswer(answer, verifier(), { maxClaims: 6 })
+      : answer
+
+    return Response.json({ answer: checked })
   } catch (err) {
     if (err instanceof ModelUnavailableError) {
       return Response.json({ error: 'model_unavailable', detail: err.message }, { status: 503 })

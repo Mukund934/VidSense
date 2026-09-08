@@ -25,6 +25,7 @@ import { YouTubeCommentsSource } from '@/ingest/sources/youtube-comments'
 import { YouTubeMetadataSource } from '@/ingest/sources/youtube-metadata'
 import type { HistoryStore, VideoStore } from '@/ingest/ports'
 import type { TranscriptSource } from '@/ingest/source'
+import { buildVerifyPrompt, parseVerdict, type Verifier } from '@/answer/verify'
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta'
 
@@ -152,6 +153,32 @@ export function transcriptSources(suppliedTranscript?: string): TranscriptSource
   // Only in play when the user actually pasted something.
   if (suppliedTranscript) sources.push(new UserSuppliedSource())
   return sources
+}
+
+// ------------------------------------------------------------------ verifier
+
+/**
+ * Is the entailment gate switched on?
+ *
+ * Off by default, per **D32**: gate 3 runs offline at launch, and inline is a
+ * post-beta decision. Turning it on costs roughly one extra model call per
+ * claim, which is a real latency and cost decision rather than a free win.
+ *
+ * What O20 established is that turning it on is *safe* — measured 2026-09-08 at
+ * 0 false positives on 15 definitively-true citations, so the gate does not
+ * destroy good evidence. That was the blocking question.
+ */
+export function verificationEnabled(): boolean {
+  return process.env.VERIFY_ANSWERS === '1' && Boolean(geminiKey())
+}
+
+/** A `Verifier` backed by Gemini. Question withheld; the span is fenced. */
+export function verifier(): Verifier {
+  const complete = completion()
+  return async ({ claim, evidence }) => {
+    const reply = await complete(buildVerifyPrompt(claim, evidence))
+    return parseVerdict(reply)
+  }
 }
 
 // --------------------------------------------------------------------- model

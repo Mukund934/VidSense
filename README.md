@@ -37,8 +37,9 @@ This README describes what is actually implemented. Where something is planned r
 | Web application — landing, workspace, player, chat, history, settings | ✅ implemented |
 | Google sign-in over a server-verified session | ✅ implemented |
 | Data deletion | ✅ implemented |
+| Notes and bookmarks | ✅ implemented |
 | Entailment gate — does a citation *support* its claim? | ✅ implemented, off by default |
-| Notes, bookmarks, Takeout history import | ❌ not started |
+| Takeout history import | ❌ not started |
 
 ---
 
@@ -99,6 +100,11 @@ because a link that lands in the wrong sentence turns evidence into a false clai
 
 A transcript that never states its timing defaults to the least trustworthy source. Precision has to be
 earned, not assumed.
+
+**One exception, and it goes the other way.** Your own notes and bookmarks *are* exact. Their timestamps come
+from the player's clock at the moment you pressed the button, not from a transcript, so they carry no tolerance
+and always jump precisely. It is the one place in the product where a plain timestamp is the honest thing to
+show.
 
 ---
 
@@ -259,6 +265,7 @@ src/
   data/
     schema.ts        Firestore document shapes and collection paths
     firestore.ts     the storage adapters
+    annotations.ts   notes and bookmarks, whose timestamps are exact
 scripts/experiments/ live-provider probes
 tests/               offline suite, plus tests/emulator and tests/rules
 ```

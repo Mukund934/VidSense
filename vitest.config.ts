@@ -16,7 +16,7 @@ export default defineConfig({
     environment: 'node',
     // The default suite runs fully offline. Anything needing the emulator lives
     // in vitest.emulator.config.ts, so `npm test` never depends on a service.
-    include: ['tests/**/*.test.ts'],
+    include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
     exclude: ['tests/rules/**', 'tests/emulator/**'],
   },
 })

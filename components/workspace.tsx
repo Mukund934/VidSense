@@ -184,10 +184,12 @@ export function Workspace({ videoId }: { videoId: string }) {
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
       <header className="mb-5">
         <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
-          {result.metadata?.title ?? 'Untitled video'}
+          {/* No metadata means the lookup itself failed, which is a different
+              thing from a video that has no title. Say the honest one. */}
+          {result.metadata?.title || 'This video could not be opened'}
         </h1>
         <p className="mt-1 text-sm text-muted">
-          {result.metadata?.channelTitle}
+          {result.metadata?.channelTitle ?? `youtube.com/watch?v=${videoId}`}
           {result.metadata?.durationSec
             ? ` · ${formatTimestamp(result.metadata.durationSec * 1000)}`
             : null}

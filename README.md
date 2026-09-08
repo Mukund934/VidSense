@@ -11,11 +11,11 @@ about it, find the moment something was said, and see the words that back every 
 
 ## Status
 
-**Early development. There is no web application yet.**
+**Early but real. The application runs end to end.**
 
-What exists today is a tested TypeScript library that takes a YouTube URL, acquires a transcript, stores it,
-searches it, answers questions about it with citations, and exports the evidence. What does not exist is a
-user interface — there is no web application to run.
+Paste a YouTube link and VidSense fetches the video's details, reads a transcript, stores it, and gives you a
+workspace: the player, a searchable transcript, a question box that answers with citations, what viewers said,
+and an evidence pack you can export. It has been exercised against live Gemini and YouTube APIs, not fixtures.
 
 This README describes what is actually implemented. Where something is planned rather than present, it says so.
 
@@ -34,8 +34,11 @@ This README describes what is actually implemented. Where something is planned r
 | Prompt-injection suite (8 classes) | ✅ implemented |
 | Comments ingestion for the VIEWERS SAY lane | ✅ implemented |
 | Evidence Pack export | ✅ implemented |
-| Web application | ❌ not started |
+| Web application — landing, workspace, player, chat, history, settings | ✅ implemented |
+| Google sign-in over a server-verified session | ✅ implemented |
+| Data deletion | ✅ implemented |
 | Answer verifier (does a citation *support* its claim?) | ❌ not started |
+| Notes, bookmarks, Takeout history import | ❌ not started |
 
 ---
 
@@ -176,13 +179,20 @@ safety comes from Security Rules and App Check rather than from hiding it. `GEMI
 
 ## Development
 
-There is no dev server yet — the web app is not scaffolded. What runs today is the test suite.
+```bash
+npm run dev        # http://localhost:3000
+```
+
+The app needs `GEMINI_API_KEY` and `YOUTUBE_API_KEY` to analyse anything. Without Firestore it still works —
+it simply forgets between restarts, and the settings page says so rather than failing quietly.
 
 ```bash
-npm test           # offline: no network, no keys, no emulator
+npm test                # offline: no network, no keys, no emulator
 npm run test:emulator   # security rules + Firestore adapters
 npm run test:all        # both
 npm run typecheck
+npm run lint
+npm run build
 ```
 
 The default suite runs **fully offline against injected fakes**. It needs no API key and makes no network
@@ -210,6 +220,11 @@ npm run experiment -- C1-align     # one experiment
 ## Project structure
 
 ```
+app/             Next.js App Router — pages and route handlers
+  api/           ingest (streamed), ask, comments, export, session, account
+components/      the workspace: player, transcript, chat, receipts, viewers
+lib/
+  server/        the only place environment variables are read
 src/
   domain/        pure logic, no I/O
     transcript.ts    cue model, receipt resolution, the cue-index invariant
@@ -273,7 +288,6 @@ VidSense is built to run on free tiers during development and early use.
 
 ## Known limitations
 
-- **No web application.** The library is not yet a product.
 - **Timestamps are approximate.** See the guarantees section above. Receipts state their own precision, and
   refuse to offer a jump link when they cannot support one.
 - **No answer verifier.** Citations are guaranteed to point at real passages; nothing yet checks that a

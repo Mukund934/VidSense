@@ -1,5 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { AuthButton } from '@/components/auth-button'
+import { isSignedIn } from '@/lib/server/session'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -8,7 +10,9 @@ export const metadata: Metadata = {
     'Turn a YouTube video into searchable, evidence-grounded knowledge. Ask questions, find exact moments, and see the words behind every answer.',
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const signedIn = await isSignedIn()
+
   return (
     <html lang="en">
       <body className="min-h-dvh flex flex-col">
@@ -30,6 +34,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Link href="/settings" className="hover:text-ink">
                 Settings
               </Link>
+              <AuthButton signedIn={signedIn} />
             </nav>
           </div>
         </header>

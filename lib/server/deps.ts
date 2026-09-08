@@ -63,7 +63,7 @@ function firestoreReady(): boolean {
   )
 }
 
-function adminApp(): App | null {
+export function adminApp(): App | null {
   if (cachedApp) return cachedApp
   if (!firestoreReady()) return null
 

@@ -33,6 +33,15 @@ export interface Limits {
   readonly perDay: Readonly<Record<Meter, number>>
   /** Per user, per rolling minute. */
   readonly perMinute: Readonly<Record<Meter, number>>
+  /**
+   * Seconds of video one user may send to the provider in a day.
+   *
+   * A count of videos cannot bound this on its own. `MAX_DURATION_SEC` allows a
+   * single video of two and a half hours, so five of them is twelve and a half
+   * hours against a provider ceiling of eight — the count cap is either
+   * generous or provably safe, and it cannot be both.
+   */
+  readonly videoSecondsPerDay: number
 }
 
 /**
@@ -56,6 +65,12 @@ export interface Limits {
 export const DEFAULT_LIMITS: Limits = {
   perDay: { ingest: 5, ask: 50 },
   perMinute: { ingest: 3, ask: 12 },
+  // Five hours. The check runs before the video's own length is known, so the
+  // worst case is this budget plus one more video — and `MAX_DURATION_SEC`
+  // caps that at two and a half hours. Five plus two and a half is seven and a
+  // half, which is under the provider's eight, so the bound holds even in the
+  // worst case rather than only on average.
+  videoSecondsPerDay: 5 * 60 * 60,
 }
 
 /** How a meter reads in a sentence written for the person who hit it. */
@@ -95,13 +110,13 @@ export interface Usage {
   readonly ingest: number
   readonly ask: number
   /**
-   * Seconds of video ingested today.
+   * Seconds of video sent to the provider today.
    *
-   * Recorded but not enforced against. The provider's real limit is hours of
-   * video rather than a count of videos, so this is the honest unit — but it is
-   * only knowable *after* the metadata call, and refusing a request at that
-   * point means having already paid for part of it. Accounting first, so a cap
-   * can later be set from observed numbers rather than guessed at.
+   * This is the provider's own unit, so it is the one the cap has to be
+   * expressed in. It is checked against the running total rather than against
+   * the video being asked for, because a video's length is not known until the
+   * metadata call has already been made — see `videoSecondsPerDay` for why that
+   * still bounds the worst case.
    */
   readonly videoSeconds: number
   readonly updatedAt: number
@@ -147,6 +162,29 @@ export function refusedForToday(meter: Meter, used: number, limit: number, now: 
     message:
       `That is today's ${limit} ${noun}. This is a free-tier limit shared by everyone ` +
       `using VidSense, not a fault — it resets in about ${hours} ${hours === 1 ? 'hour' : 'hours'}.`,
+  }
+}
+
+/**
+ * A refusal because the day's *video* is gone rather than the day's count.
+ *
+ * Worded separately because "you have watched five hours today" and "you have
+ * opened five videos today" are different facts, and someone who has hit the
+ * first while having opened two videos would read the second as a bug.
+ */
+export function refusedForSeconds(used: number, limit: number, now: number): Decision {
+  const hours = Math.max(1, Math.round(msUntilNextDay(now) / (60 * 60 * 1000)))
+  const budgetHours = Math.round(limit / 3600)
+  return {
+    allowed: false,
+    meter: 'ingest',
+    used,
+    limit,
+    retryAfterSec: Math.ceil(msUntilNextDay(now) / 1000),
+    message:
+      `That is about ${budgetHours} ${budgetHours === 1 ? 'hour' : 'hours'} of video today, ` +
+      `which is this deployment's share of a free tier everyone using VidSense draws on. ` +
+      `It resets in about ${hours} ${hours === 1 ? 'hour' : 'hours'}.`,
   }
 }
 
@@ -197,5 +235,6 @@ export function limitsFrom(env: Record<string, string | undefined>): Limits {
       ingest: read('INGESTS_PER_MINUTE', DEFAULT_LIMITS.perMinute.ingest),
       ask: read('ASKS_PER_MINUTE', DEFAULT_LIMITS.perMinute.ask),
     },
+    videoSecondsPerDay: read('VIDEO_SECONDS_PER_DAY', DEFAULT_LIMITS.videoSecondsPerDay),
   }
 }

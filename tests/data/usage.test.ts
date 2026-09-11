@@ -15,7 +15,11 @@ import { DEFAULT_LIMITS, type Limits } from '@/quota/budget'
 const DAY_MS = 24 * 60 * 60 * 1000
 const T0 = Date.UTC(2026, 8, 11, 12, 0, 0)
 
-const limits: Limits = { perDay: { ingest: 2, ask: 3 }, perMinute: { ingest: 99, ask: 99 } }
+const limits: Limits = {
+  perDay: { ingest: 2, ask: 3 },
+  perMinute: { ingest: 99, ask: 99 },
+  videoSecondsPerDay: 10_000,
+}
 
 let store: InMemoryUsageStore
 
@@ -120,10 +124,33 @@ describe('recording seconds', () => {
     expect((await store.read('alice', T0)).videoSeconds).toBe(0)
   })
 
-  it('does not spend the ingest budget', async () => {
-    // Seconds are accounting. Enforcement is on the count, and conflating the
-    // two would refuse a user who watched one long video.
-    await store.recordSeconds('alice', 100_000, T0)
+  it('leaves the count alone while under the seconds budget', async () => {
+    await store.recordSeconds('alice', limits.videoSecondsPerDay - 1, T0)
+
+    const decision = await store.claim('alice', 'ingest', limits, T0)
+    expect(decision.allowed).toBe(true)
+    expect(decision.used).toBe(1)
+  })
+
+  it('refuses an ingest once the day of video is spent', async () => {
+    // A count of videos cannot bound hours of video on its own: five videos of
+    // two and a half hours is twelve and a half hours against a provider
+    // ceiling of eight.
+    await store.recordSeconds('alice', limits.videoSecondsPerDay, T0)
+
+    const decision = await store.claim('alice', 'ingest', limits, T0)
+    expect(decision.allowed).toBe(false)
+    expect(decision.message).toContain('of video today')
+  })
+
+  it('still allows questions, which do not send video anywhere', async () => {
+    await store.recordSeconds('alice', limits.videoSecondsPerDay * 10, T0)
+    expect((await store.claim('alice', 'ask', limits, T0)).allowed).toBe(true)
+  })
+
+  it('is generous enough for a normal day by default', async () => {
+    // Four hours of video is a heavy day and must not hit the wall.
+    await store.recordSeconds('alice', 4 * 60 * 60, T0)
     expect((await store.claim('alice', 'ingest', DEFAULT_LIMITS, T0)).allowed).toBe(true)
   })
 })

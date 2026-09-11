@@ -187,6 +187,11 @@ Names only — never commit values. `.env.local` is git-ignored.
 | `NEXT_PUBLIC_FIREBASE_APP_ID` | Firebase web config | for the app |
 | `FIREBASE_SERVICE_ACCOUNT_PATH` | Admin SDK, for server writes | when deploying |
 | `GEMINI_MODEL` | Override the default model | no |
+| `INGESTS_PER_DAY` | Videos one user may analyse per day (default 5) | no |
+| `ASKS_PER_DAY` | Questions one user may ask per day (default 50) | no |
+| `VIDEO_SECONDS_PER_DAY` | Video one user may send per day (default 5 hours) | no |
+| `INGESTS_PER_MINUTE` | Burst limit on analysing (default 3) | no |
+| `ASKS_PER_MINUTE` | Burst limit on asking (default 12) | no |
 
 The `NEXT_PUBLIC_FIREBASE_*` values are publishable by design — Firebase web config is not a secret, and
 safety comes from Security Rules and App Check rather than from hiding it. `GEMINI_API_KEY` and
@@ -304,6 +309,11 @@ VidSense is built to run on free tiers during development and early use.
 - No vector database, no object storage, no queue, no media pipeline.
 - `MAX_DURATION_SEC` is set from a measured token rate (~103 prompt tokens per second of video against a
   1,048,576-token limit), so a video that could only fail at the provider is refused before it is paid for.
+- **Per-user daily limits are enforced before any provider call.** The free tiers are shared across every
+  user at once — Gemini's YouTube-URL path allows roughly 8 hours of video a day for the whole project, not
+  per person — so one person in a loop would otherwise end everybody's day. Counted in videos, in questions
+  and in seconds of video, because a count of videos cannot bound hours of video on its own. A cache hit is
+  refunded; so is a failed ingest, and a question that could not be answered.
 
 ---
 

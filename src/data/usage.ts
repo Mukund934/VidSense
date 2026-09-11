@@ -35,6 +35,7 @@ import {
   allowed,
   dayKey,
   emptyUsage,
+  refusedForSeconds,
   refusedForToday,
 } from '@/quota/budget'
 
@@ -77,6 +78,12 @@ export class FirestoreUsageStore implements UsageStore {
       const limit = limits.perDay[meter]
 
       if (usage[meter] + 1 > limit) return refusedForToday(meter, usage[meter], limit, now)
+
+      // Checked inside the same transaction as the count, so the two budgets
+      // cannot disagree about what has been spent.
+      if (meter === 'ingest' && usage.videoSeconds >= limits.videoSecondsPerDay) {
+        return refusedForSeconds(usage.videoSeconds, limits.videoSecondsPerDay, now)
+      }
 
       const next = usage[meter] + 1
       // `set` with merge rather than `update`, because the first claim of the
@@ -156,6 +163,10 @@ export class InMemoryUsageStore implements UsageStore {
     const usage = this.current(uid, now)
     const limit = limits.perDay[meter]
     if (usage[meter] + 1 > limit) return refusedForToday(meter, usage[meter], limit, now)
+
+    if (meter === 'ingest' && usage.videoSeconds >= limits.videoSecondsPerDay) {
+      return refusedForSeconds(usage.videoSeconds, limits.videoSecondsPerDay, now)
+    }
 
     const next = { ...usage, [meter]: usage[meter] + 1, updatedAt: now }
     this.days.set(this.key(uid, usage.day), next)

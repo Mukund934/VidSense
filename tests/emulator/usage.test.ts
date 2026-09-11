@@ -22,7 +22,11 @@ const PROJECT = 'vidsense-usage-test'
 const DAY_MS = 24 * 60 * 60 * 1000
 const T0 = Date.UTC(2026, 8, 11, 12, 0, 0)
 
-const limits: Limits = { perDay: { ingest: 3, ask: 5 }, perMinute: { ingest: 99, ask: 99 } }
+const limits: Limits = {
+  perDay: { ingest: 3, ask: 5 },
+  perMinute: { ingest: 99, ask: 99 },
+  videoSecondsPerDay: 10_000,
+}
 
 function emulator(): { host: string; port: number } {
   const config = JSON.parse(readFileSync('firebase.json', 'utf8')) as {
@@ -146,8 +150,24 @@ describe('FirestoreUsageStore', () => {
       expect((await store.read('alice', T0)).videoSeconds).toBe(1_500)
     })
 
-    it('does not touch the counters that refuse requests', async () => {
-      await store.recordSeconds('alice', 10_000, T0)
+    it('refuse an ingest once the day of video is spent', async () => {
+      await store.recordSeconds('alice', limits.videoSecondsPerDay, T0)
+
+      const decision = await store.claim('alice', 'ingest', limits, T0)
+      expect(decision.allowed).toBe(false)
+      // The count is nowhere near its limit; it is the hours that ran out, and
+      // the two budgets are checked in the same transaction so they cannot
+      // disagree about what has been spent.
+      expect((await store.read('alice', T0)).ingest).toBe(0)
+    })
+
+    it('does not refuse a question, which sends no video anywhere', async () => {
+      await store.recordSeconds('alice', limits.videoSecondsPerDay * 5, T0)
+      expect((await store.claim('alice', 'ask', limits, T0)).allowed).toBe(true)
+    })
+
+    it('leaves the count alone while under the budget', async () => {
+      await store.recordSeconds('alice', limits.videoSecondsPerDay - 1, T0)
       expect((await store.claim('alice', 'ingest', limits, T0)).allowed).toBe(true)
     })
   })

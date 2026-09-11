@@ -17,6 +17,13 @@
  *      defaults**, because the defaults collide with any other project's
  *      emulator suite on the same machine — and a collision on the *hub* port
  *      tears down the whole suite, Firestore included.
+ *   4. **The emulator's output must go to a file, never to a pipe.** `runTests`
+ *      blocks the event loop, so nothing would drain a pipe while the suites
+ *      run; the buffer fills and the emulator blocks on its next write. See the
+ *      note at the spawn.
+ *   5. **A bound port is not a ready emulator.** The first data request after
+ *      startup is measurably slow, so `warmUp` makes it here rather than inside
+ *      a test's hook.
  *
  * Reuse is safe: every suite here clears the data it touches before it runs,
  * and the rules suite re-uploads the current `firestore.rules`, so a reused
@@ -29,12 +36,14 @@
  */
 
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
-import { readFileSync, readdirSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { closeSync, mkdtempSync, openSync, readFileSync, readdirSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const VITEST = 'vitest run --config vitest.emulator.config.ts'
 const STARTUP_TIMEOUT_MS = 60_000
+// The first data request against a cold emulator is slow; see `warmUp`.
+const WARMUP_TIMEOUT_MS = 90_000
 const POLL_MS = 300
 
 interface FirebaseConfig {
@@ -93,6 +102,32 @@ async function isRunning(host: string, port: number): Promise<boolean> {
   }
 }
 
+/**
+ * Make the emulator answer one real request before any test does.
+ *
+ * Binding the port is not the same as being ready to serve: the emulator
+ * answers `GET /` immediately, and its first *data* request has been measured
+ * here at between 1.6s and 13.6s while the JVM warms up. Whoever makes that
+ * request pays for it, and the default is a suite's `beforeEach` — which has a
+ * 30s budget it is already sharing with the Admin SDK's credential discovery.
+ *
+ * So the cost is paid here instead, where waiting is the correct behaviour and
+ * the budget is generous. A throwaway project id is used so the warm-up can
+ * never clear data a test cares about.
+ */
+async function warmUp(host: string, port: number): Promise<void> {
+  const probe = 'vidsense-warmup'
+  try {
+    await fetch(
+      `http://${host}:${port}/emulator/v1/projects/${probe}/databases/(default)/documents`,
+      { method: 'DELETE', signal: AbortSignal.timeout(WARMUP_TIMEOUT_MS) },
+    )
+  } catch {
+    // Not fatal. If the emulator is genuinely unwell the suites will say so,
+    // with a better error than anything that could be invented here.
+  }
+}
+
 async function waitUntilRunning(host: string, port: number, child: ChildProcess): Promise<boolean> {
   const deadline = Date.now() + STARTUP_TIMEOUT_MS
   while (Date.now() < deadline) {
@@ -123,46 +158,73 @@ async function main(): Promise<void> {
 
   if (await isRunning(host, port)) {
     console.log(`Reusing the Firestore emulator already on ${host}:${port}.`)
+    // Cheap when it is already warm, and a reused emulator may have been
+    // started a second ago by someone else.
+    await warmUp(host, port)
     process.exit(runTests())
   }
 
   console.log(`Starting a Firestore emulator on ${host}:${port}.`)
-  const emulator = spawn('java', ['-jar', emulatorJar(), `--host=${host}`, `--port=${port}`], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
 
-  // Held rather than streamed: the emulator is chatty on the happy path, and
-  // its output is only worth showing when it fails to come up.
-  let output = ''
-  const collect = (chunk: Buffer): void => {
-    output += chunk.toString()
-  }
-  emulator.stdout?.on('data', collect)
-  emulator.stderr?.on('data', collect)
+  // The emulator's output goes to a file rather than to a pipe, and the reason
+  // is not tidiness.
+  //
+  // `runTests` uses `spawnSync`, which blocks this process's event loop for the
+  // whole of the test run. A piped child's `'data'` handlers cannot run while
+  // that is happening, so nothing drains the pipe; the OS buffer fills, and the
+  // emulator's next write to stdout **blocks forever**. The emulator is chatty
+  // — the rules suite alone logs a stack of PERMISSION_DENIED lines — so it
+  // reliably wedged partway through, and every request after that point hung.
+  //
+  // The symptom was 14 tests in the last suite to run failing on a 30s hook
+  // timeout, taking the run from 20s to 438s, while each suite passed on its
+  // own. A file descriptor cannot fill, so the emulator cannot be blocked by
+  // what this process happens to be doing.
+  const logPath = join(mkdtempSync(join(tmpdir(), 'vidsense-emulator-')), 'firestore.log')
+  const logFd = openSync(logPath, 'a')
+
+  const emulator = spawn('java', ['-jar', emulatorJar(), `--host=${host}`, `--port=${port}`], {
+    stdio: ['ignore', logFd, logFd],
+  })
 
   let spawnError: Error | undefined
   emulator.on('error', (err) => {
     spawnError = err
   })
 
+  /** The emulator's own account of itself, for when it will not start. */
+  const emulatorLog = (): string => {
+    try {
+      return readFileSync(logPath, 'utf8').trim()
+    } catch {
+      return ''
+    }
+  }
+
   if (!(await waitUntilRunning(host, port, emulator))) {
     stop(emulator)
+    closeSync(logFd)
     console.error(
       spawnError
         ? `Could not start java: ${spawnError.message}`
         : `The Firestore emulator did not answer on ${host}:${port} within ` +
             `${STARTUP_TIMEOUT_MS / 1000}s.`,
     )
-    if (output.trim()) console.error(`\n--- emulator output ---\n${output.trim()}`)
+    const log = emulatorLog()
+    if (log) console.error(`\n--- emulator output ---\n${log}`)
     process.exit(1)
   }
+
+  await warmUp(host, port)
 
   let status = 1
   try {
     status = runTests()
   } finally {
     stop(emulator)
+    closeSync(logFd)
   }
+  if (status !== 0) console.error(`\nThe emulator's own log is at ${logPath}`)
   process.exit(status)
 }
 

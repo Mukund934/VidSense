@@ -334,3 +334,51 @@ describe('imported watch history', () => {
     await assertFails(setDoc(doc(bob(), path(ALICE)), { importedAt: 1, count: 1 }))
   })
 })
+
+describe('the daily usage ledger', () => {
+  const path = (uid: string) => `users/${uid}/usage/2026-09-11`
+
+  const seed = async (uid: string) => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), path(uid)), { ingest: 5, ask: 12, updatedAt: now })
+    })
+  }
+
+  it('lets the owner read what they have spent today', async () => {
+    await seed(ALICE)
+    await assertSucceeds(getDoc(doc(alice(), path(ALICE))))
+  })
+
+  it('denies another user reading it', async () => {
+    await seed(ALICE)
+    await assertFails(getDoc(doc(bob(), path(ALICE))))
+  })
+
+  it('denies the owner writing their own counter', async () => {
+    // This is the whole point of the collection. A cap a client can set back to
+    // zero is not a cap, and the user it protects least is the one who paid for
+    // the provider quota.
+    await assertFails(setDoc(doc(alice(), path(ALICE)), { ingest: 0, ask: 0, updatedAt: now }))
+  })
+
+  it('denies the owner lowering it by an update', async () => {
+    await seed(ALICE)
+    await assertFails(updateDoc(doc(alice(), path(ALICE)), { ingest: 0 }))
+  })
+
+  it('denies the owner deleting the day to start again', async () => {
+    // Deletion has to be denied as well as writing: a counter you can drop is
+    // one you can reset.
+    await seed(ALICE)
+    await assertFails(deleteDoc(doc(alice(), path(ALICE))))
+  })
+
+  it('denies another user writing it', async () => {
+    await assertFails(setDoc(doc(bob(), path(ALICE)), { ingest: 0, updatedAt: now }))
+  })
+
+  it('denies an anonymous client entirely', async () => {
+    await seed(ALICE)
+    await assertFails(getDoc(doc(anon(), path(ALICE))))
+  })
+})

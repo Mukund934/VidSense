@@ -154,6 +154,9 @@ export const paths = {
   note: (uid: string, id: string) => `users/${uid}/notes/${id}`,
   bookmarks: (uid: string) => `users/${uid}/bookmarks`,
   bookmark: (uid: string, id: string) => `users/${uid}/bookmarks/${id}`,
+  usage: (uid: string) => `users/${uid}/usage`,
+  /** `day` is a UTC `YYYY-MM-DD`, so the id is the thing the counter resets on. */
+  usageDay: (uid: string, day: string) => `users/${uid}/usage/${day}`,
   video: (videoId: string) => `videos/${videoId}`,
   commentPage: (videoId: string, page: string) => `videos/${videoId}/comments/${page}`,
 } as const

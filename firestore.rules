@@ -125,6 +125,16 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      // ---- daily usage ledger ----------------------------------------------
+      // The counter that enforces the per-user daily cap. Readable by the owner
+      // so the product can show them what they have left; writable by NOBODY
+      // through the client, because a cap a client can reset is not a cap.
+
+      match /usage/{day} {
+        allow read: if isOwner(uid);
+        allow write: if false;
+      }
+
       match /bookmarks/{bookmarkId} {
         allow read, delete: if isOwner(uid);
         allow create, update: if isOwner(uid)

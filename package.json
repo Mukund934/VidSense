@@ -18,7 +18,8 @@
     "typecheck": "tsc --noEmit",
     "emulators": "firebase emulators:start --only auth,firestore",
     "experiment": "tsx scripts/experiments/run.ts",
-    "lint": "eslint app components lib"
+    "lint": "eslint app components lib",
+    "scan:secrets": "tsx scripts/scan-secrets.ts"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.2",

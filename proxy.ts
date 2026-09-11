@@ -16,7 +16,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 const UID_COOKIE = 'vs_uid'
 const ONE_YEAR = 60 * 60 * 24 * 365
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const response = NextResponse.next()
   if (request.cookies.get(UID_COOKIE)) return response
 

@@ -68,10 +68,15 @@ jobs:
 
       # The Firestore emulator is a jar, so the runner needs a JVM before the
       # Firebase CLI can hand it anything to run.
+      #
+      # 21, not 17: emulator v1.22.0 is compiled to class file version 65, and a
+      # 17 runtime reads up to 61. It fails as a LinkageError at startup, which
+      # surfaces only as "the emulator did not answer within 60s" — so this
+      # number is load-bearing and should move up, never down.
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
       - run: npm ci
 

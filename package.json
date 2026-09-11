@@ -18,7 +18,7 @@
     "typecheck": "tsc --noEmit",
     "emulators": "firebase emulators:start --only auth,firestore",
     "experiment": "tsx scripts/experiments/run.ts",
-    "lint": "next lint --dir app --dir components --dir lib"
+    "lint": "eslint app components lib"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.2",

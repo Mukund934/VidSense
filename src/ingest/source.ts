@@ -67,6 +67,32 @@ export function isTerminal(reason: FailureReason): boolean {
   return TERMINAL.has(reason)
 }
 
+/**
+ * Reasons that mean nothing was ever sent anywhere.
+ *
+ * `not_configured` is a missing key and `unsupported_input` is a source
+ * declining before it is asked — in both, the provider never heard from us, so
+ * the attempt consumed none of the shared quota.
+ */
+const NEVER_CALLED: ReadonlySet<FailureReason> = new Set<FailureReason>([
+  'not_configured',
+  'unsupported_input',
+])
+
+/**
+ * Did this attempt actually cost the provider something?
+ *
+ * Used to decide whether a failed ingest is charged against the daily budgets.
+ * The default leans towards *yes*, and deliberately: a rate-limited or errored
+ * call may still have been metered upstream, and the two mistakes are not
+ * symmetric. Over-charging costs one person one video out of five. Under-
+ * charging leaves a way to burn the whole deployment's day for free, by pasting
+ * links that are known to fail.
+ */
+export function reachedProvider(reason: FailureReason): boolean {
+  return !NEVER_CALLED.has(reason)
+}
+
 export interface SourceFailure {
   readonly source: SourceId
   readonly reason: FailureReason

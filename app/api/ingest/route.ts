@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 
 import { ingestVideo, type IngestProgress } from '@/ingest/orchestrator'
+import { reachedProvider } from '@/ingest/source'
 import { parseYouTubeUrl } from '@/ingest/url'
 import {
   capabilities,
@@ -10,7 +11,7 @@ import {
   videoStore,
 } from '@/lib/server/deps'
 import { currentUid } from '@/lib/server/session'
-import { recordVideoSeconds, refund, spend, tooManyRequests } from '@/lib/server/quota'
+import { settle, spend, tooManyRequests } from '@/lib/server/quota'
 import { remember } from '@/lib/server/cache'
 
 export const runtime = 'nodejs'
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   // lib/server/quota.ts. A cache hit costs the provider nothing and is refunded
   // below, so re-opening a video already in the shared cache is free.
   const claim = await spend(uid, 'ingest')
-  if (!claim.allowed) return tooManyRequests(claim)
+  if (!claim.decision.allowed) return tooManyRequests(claim.decision)
 
   const encoder = new TextEncoder()
 
@@ -91,18 +92,29 @@ export async function POST(request: NextRequest): Promise<Response> {
           })
         }
 
-        // Settle what was claimed up front against what it actually cost. The
-        // provider's own limit is hours of video rather than a count of them,
-        // so the seconds are recorded even though nothing is capped on them
-        // yet — a cap set from measurements beats one set from a guess.
-        if (result.fromCache) await refund(uid, 'ingest')
-        else if (result.metadata) await recordVideoSeconds(uid, result.metadata.durationSec)
+        // Settle what was claimed up front against what it actually cost.
+        //
+        // A cache hit reached no provider, so it gives everything back — the
+        // user's count and the seconds the deployment was holding for it. A
+        // degraded result is charged only when a source was genuinely called:
+        // a deleted video or an over-long one is refused before anything is
+        // sent, and nobody should pay for that. A *failed* transcript call is
+        // charged, because it was still made.
+        const called =
+          result.status === 'ready' || result.attempts.some((a) => reachedProvider(a.reason))
+        await settle(
+          claim,
+          result.fromCache || !called
+            ? { charged: false }
+            : { charged: true, seconds: result.metadata?.durationSec ?? 0 },
+        )
 
         send({ type: 'result', result })
       } catch (err) {
         // The claim bought a provider call that did not happen. Give it back,
-        // or a run of failures quietly eats the day's budget.
-        await refund(uid, 'ingest')
+        // or a run of failures quietly eats the day's budget — and, worse,
+        // leaves the deployment holding reserved seconds nobody will spend.
+        await settle(claim, { charged: false })
         // The orchestrator does not throw for expected conditions, so anything
         // arriving here is a defect rather than a degraded video. Say so.
         send({

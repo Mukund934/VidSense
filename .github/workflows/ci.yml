@@ -79,7 +79,7 @@ jobs:
       # downloaded, so the download has to happen first. Cached because it is
       # tens of megabytes and it changes only when Google ships a new emulator.
       - name: Cache the Firestore emulator
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/firebase/emulators
           key: firestore-emulator-${{ runner.os }}
@@ -95,29 +95,42 @@ jobs:
           set -o pipefail
           npm run test:emulator 2>&1 | tee /tmp/emulator-tests.log
 
-      # This job depends on more of the machine than any other — a JVM, a CLI,
-      # a cache directory and a port — so when it fails it says what it found
-      # instead of leaving "exit code 1" as the whole story. The summary is on
-      # the run page, which is readable without downloading the log archive.
+      # This job depends on more of the machine than any other — a JVM, a CLI, a
+      # cache directory and a port — so when it fails it says what it found
+      # rather than leaving "exit code 1" as the whole story.
+      #
+      # It goes to two places deliberately. The step summary is the readable
+      # one. The annotation exists because **Actions logs need a sign-in even on
+      # a public repository**, while annotations do not — so this is the only
+      # part of a failure that someone looking at the run from outside can
+      # actually read.
       - name: Explain the failure
         if: failure()
         run: |
+          detail=$(
+            echo '--- emulator cache ---'
+            ls -la ~/.cache/firebase/emulators 2>&1 || echo 'no such directory'
+            echo '--- java ---'
+            java -version 2>&1 || echo 'java is not on PATH'
+            echo '--- tail of the run ---'
+            # Colour codes are noise once this is inside an annotation.
+            tail -n 60 /tmp/emulator-tests.log 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' \
+              || echo 'nothing was captured'
+          )
+
           {
             echo '## Emulator job diagnostics'
-            echo
-            echo '### Emulator cache'
             echo '```'
-            ls -la ~/.cache/firebase/emulators 2>&1 || echo 'no such directory'
-            echo '```'
-            echo '### Java'
-            echo '```'
-            java -version 2>&1 || echo 'java is not on PATH'
-            echo '```'
-            echo '### Last 200 lines of the run'
-            echo '```'
-            tail -n 200 /tmp/emulator-tests.log 2>&1 || echo 'nothing was captured'
+            echo "$detail"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+          # An annotation is a single line, so the breaks are encoded the way
+          # the Actions runner expects to find them.
+          encoded="${detail//'%'/'%25'}"
+          encoded="${encoded//$'\n'/'%0A'}"
+          encoded="${encoded//$'\r'/'%0D'}"
+          echo "::error title=Emulator job diagnostics::${encoded}"
 
   secrets:
     name: no credentials in tracked files

@@ -54,6 +54,16 @@ vi.mock('@/lib/server/deps', () => ({
   commentsSource: () => ({ fetch: async () => ({ ok: false, reason: 'disabled' as const }) }),
   verificationEnabled: () => verifyEnabled(),
   verifier: () => verifyImpl,
+  // The ask route claims quota before it calls a model, and `null` here puts
+  // that claim on the in-memory ledger instead of reaching for Firestore.
+  firestore: () => null,
+}))
+
+// `currentUid` reads a cookie, and these handlers are invoked directly rather
+// than through a server render, so there is no request scope for it to read.
+vi.mock('@/lib/server/session', () => ({
+  currentUid: async () => 'test-user',
+  isSignedIn: async () => true,
 }))
 
 const post = (url: string, body: unknown) =>
@@ -63,7 +73,13 @@ const post = (url: string, body: unknown) =>
     body: JSON.stringify(body),
   })
 
-beforeEach(() => {
+beforeEach(async () => {
+  // The quota counters are module-scoped singletons, so without this each test
+  // inherits the spending of the ones before it and the later ones start
+  // failing on a cap rather than on what they are testing.
+  const { resetQuota } = await import('@/lib/server/quota')
+  resetQuota()
+
   loadVideo.mockReset()
   askImpl.mockReset()
   verifyEnabled.mockReset()

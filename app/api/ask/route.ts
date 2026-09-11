@@ -8,6 +8,8 @@ import {
   verificationEnabled,
   verifier,
 } from '@/lib/server/deps'
+import { refund, spend, tooManyRequests } from '@/lib/server/quota'
+import { currentUid } from '@/lib/server/session'
 import { loadVideo } from '@/lib/server/video'
 
 export const runtime = 'nodejs'
@@ -46,6 +48,13 @@ export async function POST(request: NextRequest): Promise<Response> {
     )
   }
 
+  // After the transcript check and before the model call. A question about a
+  // video with no transcript is refused without reaching a provider, so it
+  // should not cost the asker anything either.
+  const uid = await currentUid()
+  const claim = await spend(uid, 'ask')
+  if (!claim.allowed) return tooManyRequests(claim)
+
   try {
     const answer = await ask(video.transcript, question, completion())
 
@@ -58,6 +67,9 @@ export async function POST(request: NextRequest): Promise<Response> {
 
     return Response.json({ answer: checked })
   } catch (err) {
+    // No answer was produced, so the question should not count against the
+    // day's budget. Being unable to answer is not something to charge for.
+    await refund(uid, 'ask')
     if (err instanceof ModelUnavailableError) {
       return Response.json({ error: 'model_unavailable', detail: err.message }, { status: 503 })
     }

@@ -10,6 +10,7 @@ import {
   videoStore,
 } from '@/lib/server/deps'
 import { currentUid } from '@/lib/server/session'
+import { recordVideoSeconds, refund, spend, tooManyRequests } from '@/lib/server/quota'
 import { remember } from '@/lib/server/cache'
 
 export const runtime = 'nodejs'
@@ -49,6 +50,14 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   const uid = await currentUid()
+
+  // Claimed before anything is fetched, because the provider quota this
+  // protects is shared across every user of the deployment — see
+  // lib/server/quota.ts. A cache hit costs the provider nothing and is refunded
+  // below, so re-opening a video already in the shared cache is free.
+  const claim = await spend(uid, 'ingest')
+  if (!claim.allowed) return tooManyRequests(claim)
+
   const encoder = new TextEncoder()
 
   const stream = new ReadableStream<Uint8Array>({
@@ -81,8 +90,19 @@ export async function POST(request: NextRequest): Promise<Response> {
             transcript: result.transcript ?? null,
           })
         }
+
+        // Settle what was claimed up front against what it actually cost. The
+        // provider's own limit is hours of video rather than a count of them,
+        // so the seconds are recorded even though nothing is capped on them
+        // yet — a cap set from measurements beats one set from a guess.
+        if (result.fromCache) await refund(uid, 'ingest')
+        else if (result.metadata) await recordVideoSeconds(uid, result.metadata.durationSec)
+
         send({ type: 'result', result })
       } catch (err) {
+        // The claim bought a provider call that did not happen. Give it back,
+        // or a run of failures quietly eats the day's budget.
+        await refund(uid, 'ingest')
         // The orchestrator does not throw for expected conditions, so anything
         // arriving here is a defect rather than a degraded video. Say so.
         send({

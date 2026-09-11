@@ -192,6 +192,9 @@ Names only — never commit values. `.env.local` is git-ignored.
 | `VIDEO_SECONDS_PER_DAY` | Video one user may send per day (default 5 hours) | no |
 | `INGESTS_PER_MINUTE` | Burst limit on analysing (default 3) | no |
 | `ASKS_PER_MINUTE` | Burst limit on asking (default 12) | no |
+| `DEPLOYMENT_VIDEO_SECONDS_PER_DAY` | Video the whole deployment may send per day (default 7 hours) | no |
+| `DEPLOYMENT_INGESTS_PER_DAY` | Videos the whole deployment may analyse per day (default 100) | no |
+| `DEPLOYMENT_ASKS_PER_DAY` | Questions the whole deployment may answer per day (default 1000) | no |
 
 The `NEXT_PUBLIC_FIREBASE_*` values are publishable by design — Firebase web config is not a secret, and
 safety comes from Security Rules and App Check rather than from hiding it. `GEMINI_API_KEY` and
@@ -314,6 +317,12 @@ VidSense is built to run on free tiers during development and early use.
   per person — so one person in a loop would otherwise end everybody's day. Counted in videos, in questions
   and in seconds of video, because a count of videos cannot bound hours of video on its own. A cache hit is
   refunded; so is a failed ingest, and a question that could not be answered.
+- **A deployment-wide ceiling sits behind those**, because a signed-out identity is a cookie and per-user
+  caps therefore bound one honest person rather than ten arrivals. Because a video's length is unknown until
+  its metadata has been fetched, an ingest reserves the worst case up front and settles to the real duration
+  afterwards — so what the deployment has promised can never exceed the ceiling, however many requests
+  arrive together. Reservations expire, so a request that dies mid-flight cannot hold the budget until
+  midnight.
 
 ---
 

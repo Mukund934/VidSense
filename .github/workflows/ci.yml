@@ -1,0 +1,112 @@
+name: CI
+
+# Every push to main and every pull request. There is no nightly run: nothing
+# here talks to a network service, so the result only changes when the code
+# does, and a scheduled job would just re-prove yesterday's commit.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A run whose commit has already been superseded proves nothing about what is
+# on the branch now, so it is cancelled rather than left to finish.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      # Both versions run to completion: knowing it broke on 22 but not 20 is
+      # most of the diagnosis, and cancelling the other job throws that away.
+      fail-fast: false
+      matrix:
+        # 20 is the floor declared in package.json; 22 is what a current host
+        # will actually run it on. A range only tested at one end is untested.
+        node: ['20', '22']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      # No secrets are supplied, on purpose. Every adapter reports
+      # `not_configured` when its key is absent rather than throwing, so the
+      # build must succeed without one — and a build that needs a secret is one
+      # nobody who forks the repository can ever verify.
+      - name: Build
+        run: npm run build
+
+  emulator:
+    name: firestore rules and adapters
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      # The Firestore emulator is a jar, so the runner needs a JVM before the
+      # Firebase CLI can hand it anything to run.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - run: npm ci
+
+      # `npm run test:emulator` starts the jar the Firebase CLI has already
+      # downloaded, so the download has to happen first. Cached because it is
+      # tens of megabytes and it changes only when Google ships a new emulator.
+      - name: Cache the Firestore emulator
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firestore-emulator-${{ runner.os }}
+
+      - name: Install the Firebase CLI
+        run: npm install --global firebase-tools
+
+      - name: Fetch the emulator
+        run: firebase setup:emulators:firestore
+
+      - name: Rules and adapter tests
+        run: npm run test:emulator
+
+  secrets:
+    name: no credentials in tracked files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+
+      # The repository is public. This is the last gate before a key would be
+      # readable by anyone, and it is cheap enough to run on every commit.
+      - name: Scan
+        run: npm run scan:secrets

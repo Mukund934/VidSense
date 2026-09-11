@@ -30,9 +30,9 @@ jobs:
         # will actually run it on. A range only tested at one end is untested.
         node: ['20', '22']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -59,16 +59,16 @@ jobs:
     name: firestore rules and adapters
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '20'
           cache: npm
 
       # The Firestore emulator is a jar, so the runner needs a JVM before the
       # Firebase CLI can hand it anything to run.
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -91,15 +91,41 @@ jobs:
         run: firebase setup:emulators:firestore
 
       - name: Rules and adapter tests
-        run: npm run test:emulator
+        run: |
+          set -o pipefail
+          npm run test:emulator 2>&1 | tee /tmp/emulator-tests.log
+
+      # This job depends on more of the machine than any other — a JVM, a CLI,
+      # a cache directory and a port — so when it fails it says what it found
+      # instead of leaving "exit code 1" as the whole story. The summary is on
+      # the run page, which is readable without downloading the log archive.
+      - name: Explain the failure
+        if: failure()
+        run: |
+          {
+            echo '## Emulator job diagnostics'
+            echo
+            echo '### Emulator cache'
+            echo '```'
+            ls -la ~/.cache/firebase/emulators 2>&1 || echo 'no such directory'
+            echo '```'
+            echo '### Java'
+            echo '```'
+            java -version 2>&1 || echo 'java is not on PATH'
+            echo '```'
+            echo '### Last 200 lines of the run'
+            echo '```'
+            tail -n 200 /tmp/emulator-tests.log 2>&1 || echo 'nothing was captured'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   secrets:
     name: no credentials in tracked files
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '20'
           cache: npm

@@ -76,7 +76,13 @@ function emulatorJar(): string {
     .sort((a, b) => compareVersions(versionOf(a), versionOf(b)))
     .at(-1)
 
-  if (!newest) throw new Error(`No Firestore emulator jar in ${dir}. ${hint}`)
+  if (!newest) {
+    // Listing what is actually there turns "it did not work on that machine"
+    // into an answer. The usual cause is a CLI that downloaded under a
+    // different name or into a different cache directory.
+    const found = names.length ? names.join(', ') : '(the directory is empty)'
+    throw new Error(`No Firestore emulator jar in ${dir}. Found: ${found}. ${hint}`)
+  }
   return join(dir, newest)
 }
 
@@ -224,7 +230,13 @@ async function main(): Promise<void> {
     stop(emulator)
     closeSync(logFd)
   }
-  if (status !== 0) console.error(`\nThe emulator's own log is at ${logPath}`)
+  if (status !== 0) {
+    // Printed rather than pointed at, because the most common place for this to
+    // fail is a machine nobody can open a file on afterwards.
+    const log = emulatorLog()
+    const tail = log.split('\n').slice(-40).join('\n')
+    console.error(`\n--- emulator log (${logPath}) ---\n${tail || '(the emulator said nothing)'}`)
+  }
   process.exit(status)
 }
 

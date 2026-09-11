@@ -215,16 +215,22 @@ export function wouldExceed(usage: Usage, meter: Meter, limits: Limits): boolean
  * one without reaching into module state, and so a deployment can tighten the
  * cap without a code change when the number of beta users moves.
  */
+function readLimit(
+  env: Record<string, string | undefined>,
+  name: string,
+  fallback: number,
+): number {
+  const raw = env[name]
+  if (raw === undefined || raw.trim() === '') return fallback
+  const value = Number(raw)
+  // A malformed limit falls back rather than throwing: a typo in an environment
+  // variable must not take the product down, and it must certainly not be read
+  // as "no limit".
+  return Number.isInteger(value) && value >= 0 ? value : fallback
+}
+
 export function limitsFrom(env: Record<string, string | undefined>): Limits {
-  const read = (name: string, fallback: number): number => {
-    const raw = env[name]
-    if (raw === undefined || raw.trim() === '') return fallback
-    const value = Number(raw)
-    // A malformed limit falls back rather than throwing: a typo in an
-    // environment variable must not take the product down, and it must
-    // certainly not be read as "no limit".
-    return Number.isInteger(value) && value >= 0 ? value : fallback
-  }
+  const read = (name: string, fallback: number): number => readLimit(env, name, fallback)
 
   return {
     perDay: {
@@ -236,5 +242,129 @@ export function limitsFrom(env: Record<string, string | undefined>): Limits {
       ask: read('ASKS_PER_MINUTE', DEFAULT_LIMITS.perMinute.ask),
     },
     videoSecondsPerDay: read('VIDEO_SECONDS_PER_DAY', DEFAULT_LIMITS.videoSecondsPerDay),
+  }
+}
+
+// ------------------------------------------------- the deployment as a whole
+
+/**
+ * The ceiling that identity churn cannot reset.
+ *
+ * Everything above is *per user*, and a signed-out user's identity is a cookie.
+ * Clearing it is one keystroke, so per-user caps bound an honest person's
+ * enthusiasm and nothing else: ten anonymous visitors, or one visitor with ten
+ * cookie jars, can still empty the day between them. The quota being protected
+ * belongs to the Google project, not to any user, so the last line has to be
+ * counted the same way — once, for the whole deployment.
+ *
+ * This is a ceiling on the *product*, not on a person, and the refusal has to
+ * say so. Somebody turned away here did nothing wrong.
+ */
+export interface DeploymentLimits {
+  /** Seconds of video the whole deployment may send in a day. The binding one. */
+  readonly videoSecondsPerDay: number
+  readonly ingestsPerDay: number
+  readonly asksPerDay: number
+}
+
+/**
+ * Where these three numbers come from, and how confident each one is.
+ *
+ * `videoSecondsPerDay` is the only one derived from a measured provider limit:
+ * ARCHITECTURE §6 records Gemini's free tier at **8 hours of YouTube video per
+ * day for the whole project**. Seven is used rather than eight because our
+ * count and Google's cannot be assumed identical — a provider-side retry bills
+ * them and not us — and a ceiling with no margin is one that discovers it was
+ * wrong by being exceeded.
+ *
+ * The other two are **backstops, not measurements**, and should be read as
+ * such. `ingestsPerDay` catches the case the seconds ceiling cannot see: a
+ * flood of very short videos, where per-request overhead accumulates while the
+ * seconds barely move. `asksPerDay` is sized from intent rather than from a
+ * published limit — roughly twenty beta users at the per-user allowance of
+ * fifty — because the free tier's requests-per-day figure is not recorded
+ * anywhere in the research and inventing one would be worse than admitting it.
+ */
+export const DEFAULT_DEPLOYMENT_LIMITS: DeploymentLimits = {
+  videoSecondsPerDay: 7 * 60 * 60,
+  ingestsPerDay: 100,
+  asksPerDay: 1_000,
+}
+
+/**
+ * How long a seconds reservation is honoured before it is treated as dead.
+ *
+ * Seconds have to be reserved before the video's length is known (see
+ * `reservation` in `src/data/deployment.ts`), which means a request that dies
+ * between reserving and settling would hold part of the day's budget for ever.
+ * The ingest route's own `maxDuration` is 300s, so nothing legitimate can still
+ * be running after six minutes — past that, the reservation is not pending, it
+ * is lost, and a ceiling that can be wedged by one crash is worse than the
+ * problem it solves.
+ */
+export const RESERVATION_TTL_MS = 6 * 60 * 1000
+
+export function deploymentLimitsFrom(env: Record<string, string | undefined>): DeploymentLimits {
+  return {
+    videoSecondsPerDay: readLimit(
+      env,
+      'DEPLOYMENT_VIDEO_SECONDS_PER_DAY',
+      DEFAULT_DEPLOYMENT_LIMITS.videoSecondsPerDay,
+    ),
+    ingestsPerDay: readLimit(
+      env,
+      'DEPLOYMENT_INGESTS_PER_DAY',
+      DEFAULT_DEPLOYMENT_LIMITS.ingestsPerDay,
+    ),
+    asksPerDay: readLimit(env, 'DEPLOYMENT_ASKS_PER_DAY', DEFAULT_DEPLOYMENT_LIMITS.asksPerDay),
+  }
+}
+
+/**
+ * A refusal that is not about the person reading it.
+ *
+ * Deliberately worded away from "you". Every other refusal in this file tells
+ * someone what *they* have used; this one tells them the product is full, which
+ * is a different thing and must not read as an accusation. Saying "your limit"
+ * here would be both untrue and the fastest way to lose a beta user who had
+ * spent nothing at all.
+ */
+export function refusedByDeployment(meter: Meter, now: number): Decision {
+  const hours = Math.max(1, Math.round(msUntilNextDay(now) / (60 * 60 * 1000)))
+  return {
+    allowed: false,
+    meter,
+    used: 0,
+    limit: 0,
+    retryAfterSec: Math.ceil(msUntilNextDay(now) / 1000),
+    message:
+      'VidSense itself has reached its limit for today — this is the free tier the whole ' +
+      `product runs on, and it is nothing you did. It resets in about ${hours} ` +
+      `${hours === 1 ? 'hour' : 'hours'}.`,
+  }
+}
+
+/**
+ * A refusal because the ledger itself is too busy to answer safely.
+ *
+ * The deployment counter is one document, so a crowd arriving together
+ * contends, and Firestore eventually aborts a transaction rather than let it
+ * wait for ever. That abort is not an outage — it is the database saying it
+ * could not establish whether there was room.
+ *
+ * Refusing is the only safe reading of that. Contention happens precisely when
+ * many requests are arriving, which is exactly when assuming there is room is
+ * most expensive, so an unverified claim must not be waved through. The wait is
+ * seconds rather than hours, because the condition clears as soon as the crowd
+ * does.
+ */
+export function refusedWhileBusy(meter: Meter): Decision {
+  return {
+    allowed: false,
+    meter,
+    used: 0,
+    limit: 0,
+    retryAfterSec: 5,
+    message: 'VidSense is busy right now. Try that again in a few seconds.',
   }
 }

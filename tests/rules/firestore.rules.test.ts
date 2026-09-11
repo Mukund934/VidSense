@@ -382,3 +382,35 @@ describe('the daily usage ledger', () => {
     await assertFails(getDoc(doc(anon(), path(ALICE))))
   })
 })
+
+describe('the deployment ceiling', () => {
+  const path = '/deployment/2026-09-11'
+
+  const seed = async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), path), { ingest: 3, videoSeconds: 900, updatedAt: now })
+    })
+  }
+
+  it('denies a signed-in user reading it', async () => {
+    // Not merely writing. The numbers say exactly how much of the day's
+    // provider quota is left, which is the one fact that makes exhausting it
+    // easy to time.
+    await seed()
+    await assertFails(getDoc(doc(alice(), path)))
+  })
+
+  it('denies a signed-in user writing it', async () => {
+    await assertFails(setDoc(doc(alice(), path), { ingest: 0, updatedAt: now }))
+  })
+
+  it('denies deleting the day to start it again', async () => {
+    await seed()
+    await assertFails(deleteDoc(doc(alice(), path)))
+  })
+
+  it('denies an anonymous client entirely', async () => {
+    await seed()
+    await assertFails(getDoc(doc(anon(), path)))
+  })
+})

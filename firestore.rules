@@ -160,6 +160,16 @@ service cloud.firestore {
       }
     }
 
+    // ---- deployment-wide operational state ---------------------------------
+    // The ceiling that identity churn cannot reset. Belongs to no user, so no
+    // user may touch it — not even to read: the numbers say precisely how much
+    // of the day's provider quota is left, which is the one fact that would
+    // make exhausting it easy to time. Written only by the Admin SDK.
+
+    match /deployment/{day} {
+      allow read, write: if false;
+    }
+
     // ---- everything else ---------------------------------------------------
 
     match /{document=**} {

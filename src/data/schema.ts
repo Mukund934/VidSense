@@ -157,6 +157,9 @@ export const paths = {
   usage: (uid: string) => `users/${uid}/usage`,
   /** `day` is a UTC `YYYY-MM-DD`, so the id is the thing the counter resets on. */
   usageDay: (uid: string, day: string) => `users/${uid}/usage/${day}`,
+  /** Operational state for the whole deployment. Owned by no user. */
+  deployment: () => 'deployment',
+  deploymentDay: (day: string) => `deployment/${day}`,
   video: (videoId: string) => `videos/${videoId}`,
   commentPage: (videoId: string, page: string) => `videos/${videoId}/comments/${page}`,
 } as const

@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from 'react'
 import type { Answer } from '@/answer/contract'
 import { ReceiptCard } from '@/components/receipt'
+import { Button, Thinking } from '@/components/ui'
 
 export interface Turn {
   readonly question: string
@@ -18,11 +19,20 @@ export interface Turn {
  * if a statement is worth showing it is worth citing, and if it cannot be cited
  * it belongs in the INFERENCE lane where the reader can see what it is.
  */
+
+const SUGGESTIONS = [
+  'What is the main argument?',
+  'Where is it first explained?',
+  'What does it say about the cost?',
+]
+
 export function ChatPanel({
   turns,
   pending,
   onAsk,
   onSeek,
+  videoId,
+  title,
   disabled,
   disabledReason,
 }: {
@@ -30,6 +40,8 @@ export function ChatPanel({
   pending: boolean
   onAsk: (question: string) => void
   onSeek: (ms: number) => void
+  videoId?: string
+  title?: string
   disabled?: boolean
   disabledReason?: string
 }) {
@@ -37,7 +49,11 @@ export function ChatPanel({
 
   function submit(event: FormEvent) {
     event.preventDefault()
-    const q = value.trim()
+    ask(value)
+  }
+
+  function ask(question: string) {
+    const q = question.trim()
     if (!q || pending || disabled) return
     onAsk(q)
     setValue('')
@@ -47,14 +63,26 @@ export function ChatPanel({
     <div className="flex h-full flex-col">
       <div className="vs-scroll flex-1 space-y-5 overflow-y-auto p-3">
         {turns.length === 0 && !pending && (
-          <div className="px-2 py-8 text-sm text-muted">
+          <div className="vs-enter px-2 py-8 text-sm text-muted">
             <p className="font-medium text-ink">Ask about this video.</p>
-            <ul className="mt-3 space-y-1.5">
-              <li>· What is the main argument?</li>
-              <li>· Where is X first explained?</li>
-              <li>· What does it say about Y?</li>
+            {/* Clickable rather than illustrative: the first question is the
+                hardest one to type, and these are the shapes that work. */}
+            <ul className="mt-3 flex flex-col items-start gap-1.5">
+              {SUGGESTIONS.map((suggestion) => (
+                <li key={suggestion}>
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => ask(suggestion)}
+                    className="rounded-md px-2 py-1 text-left transition-colors duration-[var(--dur-instant)]
+                               enabled:hover:bg-accent-soft enabled:hover:text-ink disabled:opacity-60"
+                  >
+                    {suggestion}
+                  </button>
+                </li>
+              ))}
             </ul>
-            <p className="mt-4 text-xs">
+            <p className="mt-4 px-2 text-xs">
               Answers cite the transcript. If the video does not cover something, VidSense says so
               rather than filling the gap.
             </p>
@@ -63,38 +91,48 @@ export function ChatPanel({
 
         {turns.map((turn, i) => (
           <div key={i} className="space-y-2.5">
-            <p className="rounded-lg bg-accent-soft px-3 py-2 text-sm font-medium">{turn.question}</p>
+            <p className="vs-enter rounded-lg bg-accent-soft px-3 py-2 text-sm font-medium">
+              {turn.question}
+            </p>
 
             {turn.error && (
-              <p className="rounded-lg border border-approx/40 bg-approx-soft px-3 py-2 text-sm">
+              <p
+                role="alert"
+                className="vs-enter rounded-lg border border-approx/40 bg-approx-soft px-3 py-2 text-sm"
+              >
                 {turn.error}
               </p>
             )}
 
             {turn.answer?.status === 'not_in_video' && (
-              <div className="rounded-lg border border-line bg-surface-raised px-3 py-3">
+              <div className="vs-enter rounded-lg border border-line bg-surface-raised px-3 py-3">
                 <p className="text-sm font-medium">Not covered in this video</p>
                 <p className="mt-1 text-sm text-muted">{turn.answer.message}</p>
               </div>
             )}
 
             {turn.answer?.status === 'unreadable' && (
-              <p className="rounded-lg border border-line bg-surface-raised px-3 py-2 text-sm text-muted">
+              <p className="vs-enter rounded-lg border border-line bg-surface-raised px-3 py-2 text-sm text-muted">
                 {turn.answer.message}
               </p>
             )}
 
-            {turn.answer?.status === 'answered' &&
-              turn.answer.claims.map((claim, j) => (
-                <ReceiptCard
-                  key={j}
-                  text={claim.text}
-                  lane={claim.lane}
-                  receipt={claim.receipt}
-                  verification={claim.verification}
-                  onSeek={onSeek}
-                />
-              ))}
+            {turn.answer?.status === 'answered' && (
+              <div className="vs-stagger space-y-2.5">
+                {turn.answer.claims.map((claim, j) => (
+                  <ReceiptCard
+                    key={j}
+                    text={claim.text}
+                    lane={claim.lane}
+                    receipt={claim.receipt}
+                    verification={claim.verification}
+                    {...(videoId ? { videoId } : {})}
+                    {...(title ? { title } : {})}
+                    onSeek={onSeek}
+                  />
+                ))}
+              </div>
+            )}
 
             {turn.answer && turn.answer.rejected.length > 0 && (
               <p className="px-1 text-xs text-muted">
@@ -106,11 +144,7 @@ export function ChatPanel({
           </div>
         ))}
 
-        {pending && (
-          <p className="px-2 text-sm text-muted" aria-live="polite">
-            Reading the transcript…
-          </p>
-        )}
+        {pending && <Thinking />}
       </div>
 
       <form onSubmit={submit} className="border-t border-line p-3">
@@ -126,17 +160,20 @@ export function ChatPanel({
               value={value}
               onChange={(e) => setValue(e.target.value)}
               placeholder="Ask about this video"
+              autoComplete="off"
               className="min-w-0 flex-1 rounded-md border border-line bg-surface px-3 py-2 text-sm
-                         placeholder:text-muted focus:border-accent focus:outline-none"
+                         transition-colors duration-[var(--dur-fast)]
+                         placeholder:text-muted hover:border-line-strong
+                         focus:border-accent focus:outline-none"
             />
-            <button
+            <Button
               type="submit"
-              disabled={pending || value.trim().length === 0}
-              className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white
-                         enabled:hover:brightness-110 disabled:opacity-45"
+              variant="primary"
+              loading={pending}
+              disabled={value.trim().length === 0}
             >
               Ask
-            </button>
+            </Button>
           </div>
         )}
       </form>

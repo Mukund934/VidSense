@@ -7,26 +7,17 @@ import type { Answer } from '@/answer/contract'
 import type { Receipt } from '@/domain/transcript'
 import { formatTimestamp } from '@/domain/transcript'
 import { ChatPanel, type Turn } from '@/components/chat-panel'
+import { IngestProgressView } from '@/components/ingest-progress'
 import { MarksPanel } from '@/components/marks-panel'
 import { Player, type PlayerHandle } from '@/components/player'
 import { TranscriptPanel } from '@/components/transcript-panel'
 import { ViewersPanel } from '@/components/viewers-panel'
+import { Button, Notice } from '@/components/ui'
 
 type Phase =
   | { kind: 'ingesting'; stage: IngestStage; detail?: string }
   | { kind: 'ready'; result: IngestResult }
   | { kind: 'failed'; message: string }
-
-const STAGE_COPY: Record<IngestStage, string> = {
-  cached: 'Found it — you have analysed this before',
-  metadata: 'Looking up the video',
-  transcript: 'Reading what is said',
-  storing: 'Saving what we found',
-  ready: 'Ready',
-  degraded: 'Finishing up',
-}
-
-const STAGE_ORDER: IngestStage[] = ['metadata', 'transcript', 'storing', 'ready']
 
 type Tab = 'transcript' | 'chat' | 'viewers' | 'marks'
 
@@ -37,12 +28,15 @@ const TABS: ReadonlyArray<readonly [Tab, string]> = [
   ['marks', 'Marks'],
 ]
 
+type ExportState = 'idle' | 'working' | 'done' | 'failed'
+
 export function Workspace({ videoId }: { videoId: string }) {
   const [phase, setPhase] = useState<Phase>({ kind: 'ingesting', stage: 'metadata' })
   const [tab, setTab] = useState<Tab>('chat')
   const [currentMs, setCurrentMs] = useState(0)
   const [turns, setTurns] = useState<Turn[]>([])
   const [asking, setAsking] = useState(false)
+  const [exporting, setExporting] = useState<ExportState>('idle')
   const player = useRef<PlayerHandle>(null)
 
   // Ingest is streamed so the wait can say what it is waiting for. A spinner
@@ -151,54 +145,67 @@ export function Workspace({ videoId }: { videoId: string }) {
   )
 
   const exportPack = useCallback(async () => {
-    const entries = turns.flatMap((turn) =>
-      (turn.answer?.status === 'answered' ? turn.answer.claims : [])
-        .filter((c): c is typeof c & { receipt: Receipt } => c.receipt !== null)
-        .map((c) => ({ heading: turn.question, receipt: c.receipt })),
-    )
+    setExporting('working')
+    try {
+      const entries = turns.flatMap((turn) =>
+        (turn.answer?.status === 'answered' ? turn.answer.claims : [])
+          .filter((c): c is typeof c & { receipt: Receipt } => c.receipt !== null)
+          .map((c) => ({ heading: turn.question, receipt: c.receipt })),
+      )
 
-    // Marks are the user's own work and belong in what they take away. Fetched
-    // at export time rather than mirrored in state, so the pack reflects what is
-    // actually saved instead of what this tab happens to remember.
-    const notes = await fetch(`/api/annotations?videoId=${encodeURIComponent(videoId)}`)
-      .then(async (r) => {
-        const body = (await r.json()) as { annotations?: Array<{ tMs: number; text: string }> }
-        return (body.annotations ?? []).filter((a) => a.text.trim().length > 0)
+      // Marks are the user's own work and belong in what they take away. Fetched
+      // at export time rather than mirrored in state, so the pack reflects what
+      // is actually saved instead of what this tab happens to remember.
+      const notes = await fetch(`/api/annotations?videoId=${encodeURIComponent(videoId)}`)
+        .then(async (r) => {
+          const body = (await r.json()) as { annotations?: Array<{ tMs: number; text: string }> }
+          return (body.annotations ?? []).filter((a) => a.text.trim().length > 0)
+        })
+        .catch(() => [])
+
+      const res = await fetch('/api/export', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ videoId, entries, notes }),
       })
-      .catch(() => [])
+      if (!res.ok) {
+        setExporting('failed')
+        return
+      }
 
-    const res = await fetch('/api/export', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ videoId, entries, notes }),
-    })
-    if (!res.ok) return
-
-    const blob = await res.blob()
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = 'vidsense-evidence.md'
-    link.click()
-    URL.revokeObjectURL(url)
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'vidsense-evidence.md'
+      link.click()
+      URL.revokeObjectURL(url)
+      setExporting('done')
+      setTimeout(() => setExporting('idle'), 2600)
+    } catch {
+      setExporting('failed')
+    }
   }, [turns, videoId])
 
   if (phase.kind === 'ingesting') {
-    return <Ingesting stage={phase.stage} {...(phase.detail ? { detail: phase.detail } : {})} />
+    return (
+      <IngestProgressView stage={phase.stage} {...(phase.detail ? { detail: phase.detail } : {})} />
+    )
   }
   if (phase.kind === 'failed') return <Failed message={phase.message} />
 
   const { result } = phase
   const transcript = result.transcript ?? null
+  const title = result.metadata?.title ?? ''
   const hasReceipts = turns.some((t) => t.answer?.status === 'answered')
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-      <header className="mb-5">
+      <header className="vs-enter mb-5">
         <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
           {/* No metadata means the lookup itself failed, which is a different
               thing from a video that has no title. Say the honest one. */}
-          {result.metadata?.title || 'This video could not be opened'}
+          {title || 'This video could not be opened'}
         </h1>
         <p className="mt-1 text-sm text-muted">
           {result.metadata?.channelTitle ?? `youtube.com/watch?v=${videoId}`}
@@ -210,27 +217,36 @@ export function Workspace({ videoId }: { videoId: string }) {
       </header>
 
       {result.status === 'degraded' && result.degraded && (
-        <div className="mb-5 rounded-lg border border-approx/40 bg-approx-soft px-4 py-3">
-          <p className="text-sm font-medium">Limited analysis</p>
-          <p className="mt-1 text-sm">{result.degraded.message}</p>
-        </div>
+        <Notice tone="warn" title="Limited analysis" className="mb-5">
+          {result.degraded.message}
+        </Notice>
       )}
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
         <div className="space-y-3">
-          <Player videoId={videoId} onTime={setCurrentMs} ref={player} />
-          {(hasReceipts || tab === 'marks') && (
-            <button
-              type="button"
-              onClick={() => void exportPack()}
-              className="w-full rounded-lg border border-line px-4 py-2.5 text-sm font-medium hover:bg-accent-soft"
-            >
-              Export evidence pack
-            </button>
-          )}
+          {/* Sticky on a wide screen so the player stays with the transcript
+              while the panel beside it scrolls; static on a narrow one, where
+              pinning a 16:9 video would eat most of the viewport. */}
+          <div className="space-y-3 lg:sticky lg:top-20">
+            <Player videoId={videoId} onTime={setCurrentMs} ref={player} />
+            {(hasReceipts || tab === 'marks') && (
+              <Button
+                onClick={() => void exportPack()}
+                loading={exporting === 'working'}
+                loadingLabel="Building the pack"
+                className="w-full"
+              >
+                {exporting === 'done'
+                  ? 'Downloaded'
+                  : exporting === 'failed'
+                    ? 'That did not work — try again'
+                    : 'Export evidence pack'}
+              </Button>
+            )}
+          </div>
         </div>
 
-        <div className="flex h-[32rem] flex-col overflow-hidden rounded-lg border border-line bg-surface-raised lg:h-[36rem]">
+        <div className="flex h-[calc(100dvh-14rem)] min-h-[26rem] flex-col overflow-hidden rounded-lg border border-line bg-surface-raised shadow-raised lg:h-[36rem]">
           <div role="tablist" aria-label="Video tools" className="flex shrink-0 border-b border-line">
             {TABS.map(([key, label]) => (
               <button
@@ -239,11 +255,20 @@ export function Workspace({ videoId }: { videoId: string }) {
                 role="tab"
                 aria-selected={tab === key}
                 onClick={() => setTab(key)}
-                className={`flex-1 px-3 py-2.5 text-sm font-medium transition-colors ${
-                  tab === key ? 'border-b-2 border-accent text-ink' : 'text-muted hover:text-ink'
-                }`}
+                className={`relative flex-1 px-2 py-2.5 text-sm font-medium transition-colors
+                            duration-[var(--dur-fast)] sm:px-3 ${
+                              tab === key ? 'text-ink' : 'text-muted hover:text-ink'
+                            }`}
               >
                 {label}
+                {/* Drawn under the label rather than a border on the button, so
+                    it can slide in from the centre instead of blinking on. */}
+                <span
+                  aria-hidden
+                  className={`absolute inset-x-0 bottom-0 h-0.5 origin-center bg-accent
+                              transition-transform duration-[var(--dur-base)] ease-[var(--ease-out)]
+                              ${tab === key ? 'scale-x-100' : 'scale-x-0'}`}
+                />
               </button>
             ))}
           </div>
@@ -255,6 +280,8 @@ export function Workspace({ videoId }: { videoId: string }) {
                 pending={asking}
                 onAsk={(q) => void askQuestion(q)}
                 onSeek={seek}
+                videoId={videoId}
+                title={title}
                 disabled={!transcript}
                 disabledReason="There is no transcript for this video, so there is nothing to answer from."
               />
@@ -276,40 +303,15 @@ export function Workspace({ videoId }: { videoId: string }) {
   )
 }
 
-function Ingesting({ stage, detail }: { stage: IngestStage; detail?: string }) {
-  const index = Math.max(0, STAGE_ORDER.indexOf(stage))
-
-  return (
-    <div className="mx-auto max-w-md px-4 py-24 text-center">
-      <div
-        className="mx-auto mb-5 h-1 w-48 overflow-hidden rounded-full bg-line"
-        role="progressbar"
-        aria-valuemin={0}
-        aria-valuemax={STAGE_ORDER.length}
-        aria-valuenow={index + 1}
-      >
-        <div
-          className="h-full rounded-full bg-accent transition-all duration-700"
-          style={{ width: `${((index + 1) / STAGE_ORDER.length) * 100}%` }}
-        />
-      </div>
-      <p className="font-medium" aria-live="polite">
-        {STAGE_COPY[stage]}
-      </p>
-      {detail && <p className="mt-1 text-sm text-muted">via {detail.replace(/_/g, ' ')}</p>}
-      <p className="mt-4 text-sm text-muted">
-        Reading a long video can take up to a minute. Nothing is downloaded.
-      </p>
-    </div>
-  )
-}
-
 function Failed({ message }: { message: string }) {
   return (
-    <div className="mx-auto max-w-md px-4 py-24 text-center">
+    <div className="vs-enter mx-auto max-w-md px-4 py-24 text-center">
       <h1 className="text-lg font-semibold">That did not work</h1>
-      <p className="mt-2 text-sm text-muted">{message}</p>
-      <Link href="/" className="mt-6 inline-block text-sm text-accent underline underline-offset-2">
+      <p className="mt-2 text-sm leading-relaxed text-muted">{message}</p>
+      <Link
+        href="/"
+        className="mt-6 inline-block text-sm text-accent underline underline-offset-2 hover:text-accent-hover"
+      >
         Try another video
       </Link>
     </div>

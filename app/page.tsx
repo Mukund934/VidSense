@@ -1,5 +1,6 @@
 import { AnalyzeForm } from '@/components/analyze-form'
 import { capabilities } from '@/lib/server/deps'
+import { Notice } from '@/components/ui'
 
 const STEPS = [
   {
@@ -38,13 +39,12 @@ export default function HomePage() {
       </div>
 
       {missing.length > 0 && (
-        <p className="mt-4 rounded-lg border border-approx/40 bg-approx-soft px-4 py-3 text-sm">
-          <strong className="font-medium">Server not fully configured.</strong> Missing{' '}
-          {missing.join(' and ')}. Ingest will not work until it is set — see the README.
-        </p>
+        <Notice tone="warn" title="Server not fully configured" className="mt-4">
+          Missing {missing.join(' and ')}. Ingest will not work until it is set — see the README.
+        </Notice>
       )}
 
-      <ol className="mt-16 grid gap-6 sm:grid-cols-3">
+      <ol className="vs-stagger mt-16 grid gap-6 sm:grid-cols-3">
         {STEPS.map((step, i) => (
           <li key={step.title}>
             <div className="mb-2 text-xs font-medium tabular-nums text-accent">0{i + 1}</div>

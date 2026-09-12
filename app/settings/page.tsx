@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic'
 
 function Row({ label, ok, detail }: { label: string; ok: boolean; detail: string }) {
   return (
-    <li className="flex items-start justify-between gap-4 border-b border-line py-3 last:border-0">
+    <li className="vs-enter flex items-start justify-between gap-4 border-b border-line py-3 last:border-0">
       <div>
         <p className="text-sm font-medium">{label}</p>
         <p className="mt-0.5 text-sm text-muted">{detail}</p>

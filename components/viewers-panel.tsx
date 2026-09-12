@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import type { CommentThread } from '@/ingest/sources/youtube-comments'
+import { Notice, SkeletonLines } from '@/components/ui'
 
 type State =
   | { kind: 'loading' }
@@ -52,14 +53,26 @@ export function ViewersPanel({ videoId }: { videoId: string }) {
   }, [videoId])
 
   if (state.kind === 'loading') {
-    return <p className="p-6 text-sm text-muted">Loading what viewers said…</p>
+    return (
+      <div className="space-y-2 p-3" aria-label="Loading what viewers said">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="rounded-lg border border-line p-3">
+            <SkeletonLines count={3} />
+          </div>
+        ))}
+      </div>
+    )
   }
 
   if (state.kind === 'empty') {
     return (
-      <div className="p-6">
-        <p className="text-sm font-medium">No viewer comments</p>
-        <p className="mt-1 text-sm text-muted">{REASON_COPY[state.reason] ?? REASON_COPY.upstream_error}</p>
+      <div className="p-4">
+        <Notice
+          tone={state.reason === 'disabled' || state.reason === 'not_found' ? 'info' : 'warn'}
+          title="No viewer comments"
+        >
+          {REASON_COPY[state.reason] ?? REASON_COPY.upstream_error}
+        </Notice>
       </div>
     )
   }
@@ -70,9 +83,13 @@ export function ViewersPanel({ videoId }: { videoId: string }) {
         A relevance-ranked sample of {state.threads.length}. This is what{' '}
         <strong className="font-medium text-ink">viewers</strong> said — not what the video says.
       </p>
-      <ul className="vs-scroll flex-1 space-y-2 overflow-y-auto p-3">
+      <ul className="vs-scroll vs-stagger flex-1 space-y-2 overflow-y-auto p-3">
         {state.threads.map((thread) => (
-          <li key={thread.id} className="rounded-lg border border-line bg-surface-raised p-3">
+          <li
+            key={thread.id}
+            className="rounded-lg border border-line bg-surface-raised p-3
+                       transition-colors duration-[var(--dur-fast)] hover:border-line-strong"
+          >
             <div className="flex items-baseline justify-between gap-2">
               <span className="truncate text-sm font-medium">{thread.author || 'A viewer'}</span>
               <span className="shrink-0 text-xs tabular-nums text-muted">

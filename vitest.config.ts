@@ -14,6 +14,9 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    // jsdom leaves a handful of DOM methods unimplemented. Shimmed here so a
+    // component never has to carry a guard that exists only for the tests.
+    setupFiles: ['./tests/support/dom-shims.ts'],
     // The default suite runs fully offline. Anything needing the emulator lives
     // in vitest.emulator.config.ts, so `npm test` never depends on a service.
     include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],

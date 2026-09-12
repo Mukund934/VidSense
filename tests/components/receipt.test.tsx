@@ -155,3 +155,81 @@ describe('ReceiptCard', () => {
     expect(screen.getByText(/not grounded in the video/i)).toBeTruthy()
   })
 })
+
+describe('copy with link', () => {
+  /** Installs a clipboard, and hands back what was written to it. */
+  function stubClipboard(fail = false) {
+    const written: string[] = []
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (text: string) => {
+          if (fail) throw new Error('denied')
+          written.push(text)
+        },
+      },
+    })
+    return written
+  }
+
+  const card = (source: TimingSource = 'caption_track', props: Record<string, unknown> = {}) =>
+    render(
+      <ReceiptCard
+        text="The second point is made here"
+        lane="VIDEO"
+        receipt={receiptWith(source)}
+        videoId="vid12345678"
+        title="Computer Networks"
+        {...props}
+      />,
+    )
+
+  it('puts the claim, the quote, the moment and a link on the clipboard', async () => {
+    const written = stubClipboard()
+    card()
+    await userEvent.click(screen.getByRole('button', { name: /copy with link/i }))
+
+    expect(written).toHaveLength(1)
+    expect(written[0]).toContain('Computer Networks')
+    expect(written[0]).toContain('The second point is made here')
+    expect(written[0]).toContain('“the second statement”')
+    expect(written[0]).toContain('watch?v=vid12345678&t=4s')
+  })
+
+  it('names no moment when the timing could not establish one', async () => {
+    // Same rule as the jump control, pointed outward: a pasted line that claims
+    // a time we cannot vouch for is a false citation that travels.
+    const written = stubClipboard()
+    card('model_raw')
+    await userEvent.click(screen.getByRole('button', { name: /copy with link/i }))
+
+    expect(written[0]).toContain('time not established')
+    expect(written[0]).not.toContain('&t=')
+  })
+
+  it('confirms, so the click is not a guess', async () => {
+    stubClipboard()
+    card()
+    await userEvent.click(screen.getByRole('button', { name: /copy with link/i }))
+    expect(screen.getByRole('button', { name: /copied with its link/i })).toBeTruthy()
+  })
+
+  it('says so when the browser refuses', async () => {
+    // An insecure origin or a declined permission. A control that silently does
+    // nothing is worse than one that admits it failed.
+    stubClipboard(true)
+    card()
+    await userEvent.click(screen.getByRole('button', { name: /copy with link/i }))
+    expect(screen.getByRole('button', { name: /could not copy/i })).toBeTruthy()
+  })
+
+  it('is absent when there is no video to link to', () => {
+    render(<ReceiptCard text="a claim" lane="VIDEO" receipt={receiptWith('caption_track')} />)
+    expect(screen.queryByRole('button', { name: /copy with link/i })).toBeNull()
+  })
+
+  it('is absent on a claim with no receipt, because there is nothing to cite', () => {
+    render(<ReceiptCard text="my own reasoning" lane="INFERENCE" receipt={null} videoId="vid12345678" />)
+    expect(screen.queryByRole('button', { name: /copy with link/i })).toBeNull()
+  })
+})

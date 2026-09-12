@@ -37,6 +37,18 @@ function transcriptWith(source: TimingSource) {
   })
 }
 
+/**
+ * A rendered transcript line, found by its words.
+ *
+ * Not `getByText`: a searched term is wrapped in a <mark>, which splits the
+ * line across several elements and puts it out of reach of a text query.
+ */
+function line(text: string): HTMLElement | undefined {
+  return Array.from(document.querySelectorAll('li')).find(
+    (el) => el.textContent?.includes(text) ?? false,
+  )
+}
+
 describe('TranscriptPanel', () => {
   it('lists the lines with their timestamps', () => {
     render(
@@ -78,9 +90,33 @@ describe('TranscriptPanel', () => {
       )
       await userEvent.type(screen.getByLabelText(/search the transcript/i), 'unrelated')
 
-      expect(screen.getByText(LINES[2]!)).toBeTruthy()
-      expect(screen.queryByText(LINES[0]!)).toBeNull()
+      // `line` rather than `getByText`: a matched cue has the term wrapped in a
+      // <mark>, so its text is split across elements by design.
+      expect(line(LINES[2]!)).toBeTruthy()
+      expect(line(LINES[0]!)).toBeUndefined()
       expect(screen.getByText(/1 matching line/i)).toBeTruthy()
+    })
+
+    it('marks the term inside the line it matched', async () => {
+      render(
+        <TranscriptPanel transcript={transcriptWith('caption_track')} currentMs={0} onSeek={vi.fn()} />,
+      )
+      await userEvent.type(screen.getByLabelText(/search the transcript/i), 'unrelated')
+
+      const marks = document.querySelectorAll('mark')
+      expect(marks).toHaveLength(1)
+      expect(marks[0]?.textContent).toBe('unrelated')
+    })
+
+    it('marks nothing when the phrase only exists across a boundary', async () => {
+      // Highlighting half a phrase suggests the other half is elsewhere on the
+      // line. Both lines still survive the filter; neither gets a mark.
+      render(
+        <TranscriptPanel transcript={transcriptWith('caption_track')} currentMs={0} onSeek={vi.fn()} />,
+      )
+      await userEvent.type(screen.getByLabelText(/search the transcript/i), 'transformer architecture')
+
+      expect(document.querySelectorAll('mark')).toHaveLength(0)
     })
 
     it('finds a phrase that spans two lines', async () => {
@@ -90,8 +126,8 @@ describe('TranscriptPanel', () => {
       await userEvent.type(screen.getByLabelText(/search the transcript/i), 'transformer architecture')
 
       // The phrase straddles a cue boundary; both lines must survive the filter.
-      expect(screen.getByText(LINES[0]!)).toBeTruthy()
-      expect(screen.getByText(LINES[1]!)).toBeTruthy()
+      expect(line(LINES[0]!)).toBeTruthy()
+      expect(line(LINES[1]!)).toBeTruthy()
     })
 
     it('says plainly when nothing matches', async () => {

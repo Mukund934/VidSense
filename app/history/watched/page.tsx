@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { watchHistoryStore } from '@/lib/server/deps'
 import { currentUid } from '@/lib/server/session'
+import { EmptyState } from '@/components/ui'
 
 export const dynamic = 'force-dynamic'
 
@@ -37,11 +38,10 @@ export default async function WatchedPage({
       <h1 className="mt-3 text-2xl font-semibold tracking-tight">Watched on YouTube</h1>
 
       {entries.length === 0 ? (
-        <div className="mt-8 rounded-xl border border-line bg-surface-raised px-6 py-10 text-center">
-          <p className="font-medium">Nothing imported yet</p>
-          <p className="mx-auto mt-1 max-w-sm text-sm text-muted">
+        <div className="mt-8">
+          <EmptyState title="Nothing imported yet">
             Import a Takeout archive from your videos page and your history will appear here.
-          </p>
+          </EmptyState>
         </div>
       ) : (
         <>
@@ -55,13 +55,20 @@ export default async function WatchedPage({
               <li key={entry.videoId}>
                 <Link
                   href={`/v/${entry.videoId}`}
-                  className="flex items-center gap-3 rounded-lg border border-line bg-surface-raised p-2.5 hover:border-accent"
+                  className="group flex items-center gap-3 rounded-lg border border-line
+                             bg-surface-raised p-2.5 transition-colors duration-[var(--dur-fast)]
+                             hover:border-accent"
                 >
                   <span className="shrink-0 font-mono text-xs tabular-nums text-muted">
                     {new Date(entry.watchedAt).toISOString().slice(0, 10)}
                   </span>
                   <span className="min-w-0 flex-1 truncate font-mono text-sm">{entry.videoId}</span>
-                  <span className="shrink-0 text-xs text-accent">Analyse</span>
+                  <span
+                    className="shrink-0 text-xs text-muted transition-colors
+                               duration-[var(--dur-fast)] group-hover:text-accent"
+                  >
+                    Analyse
+                  </span>
                 </Link>
               </li>
             ))}

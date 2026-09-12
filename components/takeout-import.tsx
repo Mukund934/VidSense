@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { TAKEOUT_MESSAGE, parseTakeout, type TakeoutStats, type WatchEntry } from '@/ingest/takeout'
+import { Button } from '@/components/ui'
 
 /**
  * Import a Google Takeout watch history.
@@ -143,17 +144,15 @@ export function TakeoutImport() {
           <div className="flex gap-2">
             <Link
               href="/history/watched"
-              className="rounded-md border border-line px-3 py-1.5 text-sm font-medium hover:border-accent"
+              className="inline-flex items-center rounded-md border border-line bg-surface-raised
+                         px-2.5 py-1.5 text-xs font-medium transition-colors
+                         duration-[var(--dur-instant)] hover:border-line-strong hover:bg-accent-soft"
             >
               Browse
             </Link>
-            <button
-              type="button"
-              onClick={() => void forget()}
-              className="rounded-md border border-line px-3 py-1.5 text-sm font-medium hover:border-approx"
-            >
+            <Button size="sm" onClick={() => void forget()} className="hover:border-approx">
               Forget it
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -170,31 +169,24 @@ export function TakeoutImport() {
             e.target.value = ''
           }}
         />
-        <button
-          type="button"
+        <Button
+          variant="primary"
           onClick={() => input.current?.click()}
-          disabled={status.kind === 'reading' || status.kind === 'saving'}
-          className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white
-                     enabled:hover:brightness-110 disabled:opacity-45"
+          loading={status.kind === 'reading' || status.kind === 'saving'}
+          loadingLabel={status.kind === 'reading' ? 'Reading the file' : 'Saving'}
         >
-          {status.kind === 'reading'
-            ? 'Reading…'
-            : status.kind === 'saving'
-              ? 'Saving…'
-              : existing
-                ? 'Import a newer file'
-                : 'Choose watch-history.json'}
-        </button>
+          {existing ? 'Import a newer file' : 'Choose watch-history.json'}
+        </Button>
       </div>
 
       {status.kind === 'error' && (
-        <p role="alert" className="mt-3 text-sm text-approx">
+        <p role="alert" className="vs-enter mt-3 text-sm text-approx">
           {status.message}
         </p>
       )}
 
       {status.kind === 'done' && (
-        <p className="mt-3 text-sm text-exact">
+        <p className="vs-enter mt-3 text-sm text-exact">
           Imported {status.stats.kept.toLocaleString()} videos from{' '}
           {status.stats.total.toLocaleString()} history entries
           {status.stats.duplicates > 0 && <>, collapsing {status.stats.duplicates.toLocaleString()} repeat views</>}

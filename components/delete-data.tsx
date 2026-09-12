@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { Button, Notice } from '@/components/ui'
 
 type State = 'idle' | 'confirming' | 'working' | 'done' | 'failed'
 
@@ -31,52 +32,48 @@ export function DeleteData() {
 
   if (state === 'done') {
     return (
-      <p className="rounded-lg border border-exact/40 bg-exact-soft px-4 py-3 text-sm">
+      <Notice tone="good" assertive>
         Deleted. {count > 0 ? `${count} records removed.` : 'There was nothing stored.'}
-      </p>
+      </Notice>
     )
   }
 
   return (
     <div>
-      {state === 'confirming' ? (
-        <div className="rounded-lg border border-approx/40 bg-approx-soft px-4 py-3">
-          <p className="text-sm font-medium">This cannot be undone.</p>
-          <p className="mt-1 text-sm">
+      {/* The panel stays up while the delete runs. Swapping back to a disabled
+          "Delete my data" mid-flight would read as though the confirmation had
+          been dismissed and nothing was happening. */}
+      {state === 'confirming' || state === 'working' ? (
+        <Notice tone="warn" title="This cannot be undone." assertive>
+          <p>
             Your history, conversations, notes and bookmarks will be deleted. Transcripts that
             VidSense caches for everyone are not yours alone and stay — they contain nothing about
             you.
           </p>
           <div className="mt-3 flex gap-2">
-            <button
-              type="button"
+            {/* The destructive option is not the primary one. It is reachable in
+                one click and does not look like the button you meant to press. */}
+            <Button
+              variant="danger"
+              loading={state === 'working'}
+              loadingLabel="Deleting"
               onClick={() => void run()}
-              className="rounded-md bg-approx px-4 py-2 text-sm font-medium text-white hover:brightness-110"
             >
               Delete everything
-            </button>
-            <button
-              type="button"
-              onClick={() => setState('idle')}
-              className="rounded-md border border-line px-4 py-2 text-sm font-medium"
-            >
+            </Button>
+            <Button disabled={state === 'working'} onClick={() => setState('idle')}>
               Keep it
-            </button>
+            </Button>
           </div>
-        </div>
+        </Notice>
       ) : (
-        <button
-          type="button"
-          disabled={state === 'working'}
-          onClick={() => setState('confirming')}
-          className="rounded-lg border border-line px-4 py-2 text-sm font-medium hover:border-approx disabled:opacity-50"
-        >
-          {state === 'working' ? 'Deleting…' : 'Delete my data'}
-        </button>
+        <Button onClick={() => setState('confirming')} className="hover:border-approx">
+          Delete my data
+        </Button>
       )}
 
       {state === 'failed' && (
-        <p className="mt-2 text-sm text-approx">
+        <p role="alert" className="vs-enter mt-2 text-sm text-approx">
           That did not work. Nothing was deleted — try again.
         </p>
       )}

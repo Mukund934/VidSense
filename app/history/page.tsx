@@ -4,6 +4,7 @@ import { capabilities } from '@/lib/server/deps'
 import { listHistory } from '@/lib/server/history'
 import { currentUid } from '@/lib/server/session'
 import { TakeoutImport } from '@/components/takeout-import'
+import { EmptyState, Notice } from '@/components/ui'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,33 +25,40 @@ export default async function HistoryPage() {
       </p>
 
       {!capabilities().firestore && (
-        <p className="mt-6 rounded-lg border border-approx/40 bg-approx-soft px-4 py-3 text-sm">
+        <Notice tone="warn" className="mt-6">
           History needs Firestore, which this server has not been given. Analysis still works; it is
           just not remembered between restarts.
-        </p>
+        </Notice>
       )}
 
       {capabilities().firestore && entries.length === 0 && (
-        <div className="mt-10 rounded-xl border border-line bg-surface-raised px-6 py-10 text-center">
-          <p className="font-medium">Nothing here yet</p>
-          <p className="mx-auto mt-1 max-w-sm text-sm text-muted">
-            Paste a YouTube link and it will show up here so you can come back to it.
-          </p>
-          <Link
-            href="/"
-            className="mt-5 inline-block rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white"
+        <div className="mt-10">
+          <EmptyState
+            title="Nothing here yet"
+            action={
+              <Link
+                href="/"
+                className="inline-flex items-center rounded-lg bg-accent px-4 py-2 text-sm
+                           font-medium text-white shadow-raised transition-[background-color,box-shadow]
+                           duration-[var(--dur-instant)] hover:bg-accent-hover hover:shadow-lifted"
+              >
+                Analyse a video
+              </Link>
+            }
           >
-            Analyse a video
-          </Link>
+            Paste a YouTube link and it will show up here so you can come back to it.
+          </EmptyState>
         </div>
       )}
 
-      <ul className="mt-8 space-y-2">
+      <ul className="vs-stagger mt-8 space-y-2">
         {entries.map((entry) => (
           <li key={entry.videoId}>
             <Link
               href={`/v/${entry.videoId}`}
-              className="flex items-center gap-3 rounded-lg border border-line bg-surface-raised p-3 hover:border-accent"
+              className="flex items-center gap-3 rounded-lg border border-line bg-surface-raised p-3
+                         transition-[border-color,box-shadow] duration-[var(--dur-fast)]
+                         hover:border-accent hover:shadow-lifted"
             >
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium">{entry.title ?? entry.videoId}</p>

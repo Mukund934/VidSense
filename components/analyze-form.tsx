@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { useState, type FormEvent } from 'react'
 import { parseYouTubeUrl } from '@/ingest/url'
+import { Button } from '@/components/ui'
 
 /**
  * The product's entire entry point.
@@ -50,20 +51,24 @@ export function AnalyzeForm({ autoFocus = false }: { autoFocus?: boolean }) {
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? 'video-url-error' : undefined}
           className="min-w-0 flex-1 rounded-lg border border-line bg-surface-raised px-4 py-3 text-base
-                     placeholder:text-muted focus:border-accent focus:outline-none"
+                     shadow-raised transition-[border-color,box-shadow] duration-[var(--dur-fast)]
+                     placeholder:text-muted hover:border-line-strong
+                     focus:border-accent focus:shadow-lifted focus:outline-none"
         />
-        <button
+        <Button
           type="submit"
-          disabled={pending || value.trim().length === 0}
-          className="rounded-lg bg-accent px-5 py-3 font-medium text-white transition
-                     enabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45"
+          variant="primary"
+          size="lg"
+          loading={pending}
+          loadingLabel="Opening"
+          disabled={value.trim().length === 0}
         >
-          {pending ? 'Opening…' : 'Understand it'}
-        </button>
+          Understand it
+        </Button>
       </div>
 
       {error && (
-        <p id="video-url-error" role="alert" className="mt-2 text-sm text-approx">
+        <p id="video-url-error" role="alert" className="vs-enter mt-2 text-sm text-approx">
           {error}
         </p>
       )}

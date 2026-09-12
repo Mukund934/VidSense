@@ -48,7 +48,10 @@ describe('serviceAccount', () => {
     ['empty', ''],
     ['whitespace', '   '],
     ['a path to nothing', join(tmpdir(), 'vidsense-does-not-exist.json')],
-    ['malformed JSON', '{"type": "service_account"'],
+    // Deliberately not a truncated service-account key: `npm run scan:secrets`
+    // flags that shape wherever it appears, and a scanner taught to ignore it
+    // in a test is a scanner that will ignore the real thing.
+    ['malformed JSON', '{"project_id": "vidsense"'],
     ['JSON that is not an object', '{}"'],
   ])('returns null for %s rather than throwing', (_label, value) => {
     // A credential typo should cost the cache, not the product: every store

@@ -260,6 +260,65 @@ time,
 .vs-stagger > :nth-child(5) { animation-delay: 180ms; }
 .vs-stagger > :nth-child(n + 6) { animation-delay: 225ms; }
 
+/*
+ * A line of type arriving from behind its own edge.
+ *
+ * The manifesto's rule, and it is a good one: never reveal with opacity alone.
+ * A fade says "this was always here and you could not see it"; a mask says "this
+ * is being set down in front of you", which is what a first impression should
+ * say. Used once, on the one line that is the product's whole claim.
+ *
+ * The padding and the equal negative margin give descenders somewhere to be
+ * without letting them show through the mask early — a `y` clipped flat is the
+ * tell that turns a considered reveal into a rendering fault.
+ */
+.vs-mask {
+  display: block;
+  overflow: hidden;
+  padding-bottom: 0.12em;
+  margin-bottom: -0.12em;
+}
+
+.vs-mask > * {
+  display: block;
+  animation: vs-mask-rise var(--dur-slow) var(--ease-out) both;
+  animation-delay: var(--d, 0ms);
+}
+
+@keyframes vs-mask-rise {
+  from {
+    transform: translate3d(0, 110%, 0);
+  }
+}
+
+/* Any entrance can be offset without inventing a class for each position. */
+.vs-enter,
+.vs-fade-in {
+  animation-delay: var(--d, 0ms);
+}
+
+/*
+ * Arriving as you reach it, where the browser can do it without JavaScript.
+ *
+ * A scroll-driven animation costs no script, no observer and no hydration, and
+ * it runs off the main thread. Where it is unsupported the rule simply does not
+ * apply and the content is there from the start — which is the correct fallback
+ * and not a degraded one, so there is nothing to polyfill.
+ *
+ * `entry` rather than a continuous range: the element should land once, when it
+ * comes into view, and then be left alone. Content that keeps reacting to the
+ * scrollbar is content you cannot read while scrolling.
+ */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .vs-reveal {
+      animation: vs-rise var(--dur-base) var(--ease-out) both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 55%;
+    }
+  }
+}
+
 .vs-skeleton {
   background-image: linear-gradient(
     90deg,

@@ -112,8 +112,15 @@ export function ReceiptCard({
                 </span>
               </button>
             ) : (
+              // Two different reasons, and only one of them is about the
+              // evidence. An unlocated receipt has to say so, because the
+              // missing link is the product making a claim about its own
+              // precision. A card rendered without a player — the example on
+              // the landing page — has nothing to seek and should not imply
+              // the timing is the problem.
               <span className="font-mono text-xs text-muted">
-                {formatTimestamp(receipt.startMs)} — no reliable jump for this quote
+                {formatTimestamp(receipt.startMs)}
+                {!seekable && ' — no reliable jump for this quote'}
               </span>
             )}
 

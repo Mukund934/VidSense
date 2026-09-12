@@ -51,7 +51,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           href="#main"
           className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50
                      focus:rounded-md focus:bg-accent focus:px-3 focus:py-2 focus:text-sm
-                     focus:font-medium focus:text-white"
+                     focus:font-medium focus:text-on-accent"
         >
           Skip to content
         </a>
@@ -66,7 +66,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <span
                 aria-hidden
                 className="grid h-6 w-6 place-items-center rounded-md bg-accent text-[11px]
-                           font-bold text-white shadow-raised transition-transform
+                           font-bold text-on-accent shadow-raised transition-transform
                            duration-[var(--dur-fast)] ease-[var(--ease-out)] group-hover:scale-105"
               >
                 VS

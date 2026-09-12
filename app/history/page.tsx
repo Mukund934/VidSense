@@ -39,7 +39,7 @@ export default async function HistoryPage() {
               <Link
                 href="/"
                 className="inline-flex items-center rounded-lg bg-accent px-4 py-2 text-sm
-                           font-medium text-white shadow-raised transition-[background-color,box-shadow]
+                           font-medium text-on-accent shadow-raised transition-[background-color,box-shadow]
                            duration-[var(--dur-instant)] hover:bg-accent-hover hover:shadow-lifted"
               >
                 Analyse a video

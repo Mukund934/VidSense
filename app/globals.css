@@ -28,13 +28,33 @@
   --color-accent: oklch(0.52 0.17 258);
   --color-accent-hover: oklch(0.47 0.18 258);
   --color-accent-soft: oklch(0.95 0.03 258);
+  /*
+   * Whatever sits *on* a solid accent or amber fill.
+   *
+   * Not `white`. In dark mode the accent lightens to 0.72 so it reads as a fill
+   * against a near-black page — and white on it measures 2.5:1, which failed on
+   * the product's primary call to action and on the logo. Dark text on that same
+   * fill measures 7.7:1. So the foreground has to flip with the scheme, and a
+   * token is the only way that happens everywhere at once.
+   */
+  --color-on-accent: oklch(0.99 0.002 265);
 
-  /* Precision, per docs/ARCHITECTURE.md and D55. */
-  --color-exact: oklch(0.52 0.13 158);
+  /*
+   * Precision, per docs/ARCHITECTURE.md and D55.
+   *
+   * These lightnesses are measured rather than chosen. Each one is set on its
+   * own `-soft` background at 11px — the size the badges actually render at —
+   * and darkened until it clears WCAG AA's 4.5:1 for small text. Amber was the
+   * worst at 3.83:1, which is a real failure in the one place the product
+   * cannot afford one: the badge *is* the claim about how far a timestamp can
+   * be trusted, so a reader who cannot make it out is left with a bare number
+   * and no idea what it is worth.
+   */
+  --color-exact: oklch(0.5 0.13 158);
   --color-exact-soft: oklch(0.95 0.04 158);
-  --color-approx: oklch(0.58 0.12 75);
+  --color-approx: oklch(0.53 0.12 75);
   --color-approx-soft: oklch(0.96 0.05 75);
-  --color-unlocated: oklch(0.55 0.01 265);
+  --color-unlocated: oklch(0.52 0.01 265);
   --color-unlocated-soft: oklch(0.95 0.004 265);
 
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -97,6 +117,8 @@
     --color-accent: oklch(0.72 0.14 258);
     --color-accent-hover: oklch(0.78 0.14 258);
     --color-accent-soft: oklch(0.28 0.06 258);
+    /* The fills lighten here, so what sits on them has to darken. */
+    --color-on-accent: oklch(0.17 0.012 265);
 
     --color-exact: oklch(0.75 0.14 158);
     --color-exact-soft: oklch(0.26 0.05 158);

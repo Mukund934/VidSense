@@ -25,11 +25,11 @@ type Size = 'sm' | 'md' | 'lg'
 
 const VARIANT: Record<Variant, string> = {
   primary:
-    'bg-accent text-white shadow-raised enabled:hover:bg-accent-hover enabled:hover:shadow-lifted',
+    'bg-accent text-on-accent shadow-raised enabled:hover:bg-accent-hover enabled:hover:shadow-lifted',
   secondary:
     'border border-line bg-surface-raised text-ink enabled:hover:border-line-strong enabled:hover:bg-accent-soft',
   quiet: 'text-muted enabled:hover:bg-accent-soft enabled:hover:text-ink',
-  danger: 'bg-approx text-white shadow-raised enabled:hover:brightness-110',
+  danger: 'bg-approx text-on-accent shadow-raised enabled:hover:brightness-110',
 }
 
 const SIZE: Record<Size, string> = {

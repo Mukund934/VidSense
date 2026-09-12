@@ -16,12 +16,22 @@ import { NextResponse, type NextRequest } from 'next/server'
 const UID_COOKIE = 'vs_uid'
 const ONE_YEAR = 60 * 60 * 24 * 365
 
+/**
+ * The shape must match `ANON_SHAPE` in `lib/server/session.ts` exactly — `anon_`
+ * and twenty lowercase hex characters. That server-side pattern is what keeps a
+ * visitor cookie from being able to name a Firebase account, so an id minted in
+ * any other shape here is simply discarded on the next request and history
+ * stops accumulating. `tests/server/session.test.ts` holds the two together.
+ */
+function mintVisitorId(): string {
+  return `anon_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`
+}
+
 export function proxy(request: NextRequest) {
   const response = NextResponse.next()
   if (request.cookies.get(UID_COOKIE)) return response
 
-  const uid = `anon_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`
-  response.cookies.set(UID_COOKIE, uid, {
+  response.cookies.set(UID_COOKIE, mintVisitorId(), {
     httpOnly: true,
     sameSite: 'lax',
     path: '/',

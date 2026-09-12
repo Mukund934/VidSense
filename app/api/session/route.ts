@@ -2,18 +2,22 @@ import { cookies } from 'next/headers'
 import { getAuth } from 'firebase-admin/auth'
 
 import { adminApp } from '@/lib/server/deps'
-import { SESSION_COOKIE } from '@/lib/server/session'
+import { SESSION_COOKIE, SESSION_MAX_AGE_MS } from '@/lib/server/session'
 
 export const runtime = 'nodejs'
-
-const ONE_WEEK_SEC = 60 * 60 * 24 * 7
 
 /**
  * Exchange a Firebase ID token for a session.
  *
- * The token is verified server-side with the Admin SDK before anything is
- * written. A uid the browser merely asserts is worth nothing; only a verified
- * one gets to own data under `users/{uid}`.
+ * The cookie is a **session cookie the Admin SDK mints and signs**, not the uid
+ * it decoded. That distinction is the security of the whole product: a cookie
+ * holding a bare uid is a cookie anyone can type, and every route that resolves
+ * a uid writes through the Admin SDK, which bypasses the Firestore rules that
+ * would otherwise stand between a forged identity and someone else's data.
+ *
+ * `createSessionCookie` also re-verifies the ID token as it goes, so a token
+ * that is expired, from another project, or simply invented never reaches the
+ * point of minting anything.
  */
 export async function POST(request: Request): Promise<Response> {
   const app = adminApp()
@@ -33,13 +37,15 @@ export async function POST(request: Request): Promise<Response> {
   if (!body.idToken) return Response.json({ error: 'idToken is required.' }, { status: 400 })
 
   try {
-    const decoded = await getAuth(app).verifyIdToken(body.idToken)
+    const session = await getAuth(app).createSessionCookie(body.idToken, {
+      expiresIn: SESSION_MAX_AGE_MS,
+    })
     const jar = await cookies()
-    jar.set(SESSION_COOKIE, decoded.uid, {
+    jar.set(SESSION_COOKIE, session, {
       httpOnly: true,
       sameSite: 'lax',
       path: '/',
-      maxAge: ONE_WEEK_SEC,
+      maxAge: SESSION_MAX_AGE_MS / 1000,
       secure: process.env.NODE_ENV === 'production',
     })
     return Response.json({ ok: true })

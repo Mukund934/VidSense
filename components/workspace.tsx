@@ -33,6 +33,19 @@ type ExportState = 'idle' | 'working' | 'done' | 'failed'
 export function Workspace({ videoId }: { videoId: string }) {
   const [phase, setPhase] = useState<Phase>({ kind: 'ingesting', stage: 'metadata' })
   const [tab, setTab] = useState<Tab>('chat')
+  /**
+   * Which panels have been opened, and are therefore kept mounted.
+   *
+   * Not all four from the start, and not one at a time either. Mounting them
+   * all would have the viewers panel fetch three pages of comments — real
+   * YouTube quota — for a tab nobody opened. Unmounting on every switch, which
+   * is what this did, made that same call *again* each time somebody came back
+   * to it, and threw away the transcript's scroll position and search along
+   * with it.
+   *
+   * Mount on first visit, keep for the life of the page. Once is once.
+   */
+  const [opened, setOpened] = useState<ReadonlySet<Tab>>(() => new Set<Tab>(['chat']))
   const [currentMs, setCurrentMs] = useState(0)
   const [turns, setTurns] = useState<Turn[]>([])
   const [asking, setAsking] = useState(false)
@@ -88,7 +101,9 @@ export function Workspace({ videoId }: { videoId: string }) {
               })
             } else if (event.type === 'result') {
               setPhase({ kind: 'ready', result: event.result })
-              setTab(event.result.transcript ? 'chat' : 'viewers')
+              const landing: Tab = event.result.transcript ? 'chat' : 'viewers'
+              setTab(landing)
+              setOpened((seen) => new Set(seen).add(landing))
             } else {
               setPhase({ kind: 'failed', message: event.message })
             }
@@ -110,6 +125,33 @@ export function Workspace({ videoId }: { videoId: string }) {
   const seek = useCallback((ms: number) => {
     player.current?.seekTo(ms)
   }, [])
+
+  const show = useCallback((next: Tab) => {
+    setTab(next)
+    setOpened((seen) => (seen.has(next) ? seen : new Set(seen).add(next)))
+  }, [])
+
+  /**
+   * Arrow keys move between tabs, which is what the tablist pattern promises.
+   *
+   * Without it a keyboard user tabs into the list and then has to tab through
+   * every control in the open panel to reach the next one — the same journey a
+   * mouse user makes in one click.
+   */
+  const onTabKey = useCallback(
+    (event: React.KeyboardEvent) => {
+      const keys: Record<string, number> = { ArrowLeft: -1, ArrowRight: 1 }
+      const step = keys[event.key]
+      if (step === undefined) return
+      event.preventDefault()
+      const at = TABS.findIndex(([key]) => key === tab)
+      const next = TABS[(at + step + TABS.length) % TABS.length]
+      if (!next) return
+      show(next[0])
+      document.getElementById(`tab-${next[0]}`)?.focus()
+    },
+    [tab, show],
+  )
 
   const askQuestion = useCallback(
     async (question: string) => {
@@ -247,14 +289,25 @@ export function Workspace({ videoId }: { videoId: string }) {
         </div>
 
         <div className="flex h-[calc(100dvh-14rem)] min-h-[26rem] flex-col overflow-hidden rounded-lg border border-line bg-surface-raised shadow-raised lg:h-[36rem]">
-          <div role="tablist" aria-label="Video tools" className="flex shrink-0 border-b border-line">
+          <div
+            role="tablist"
+            aria-label="Video tools"
+            onKeyDown={onTabKey}
+            className="flex shrink-0 border-b border-line"
+          >
             {TABS.map(([key, label]) => (
               <button
                 key={key}
+                id={`tab-${key}`}
                 type="button"
                 role="tab"
                 aria-selected={tab === key}
-                onClick={() => setTab(key)}
+                aria-controls={`panel-${key}`}
+                // Roving tabindex: the list is one stop, and the arrows move
+                // within it. Four separate tab stops for four tabs is the thing
+                // the pattern exists to avoid.
+                tabIndex={tab === key ? 0 : -1}
+                onClick={() => show(key)}
                 className={`relative flex-1 px-2 py-2.5 text-sm font-medium transition-colors
                             duration-[var(--dur-fast)] sm:px-3 ${
                               tab === key ? 'text-ink' : 'text-muted hover:text-ink'
@@ -274,7 +327,7 @@ export function Workspace({ videoId }: { videoId: string }) {
           </div>
 
           <div className="min-h-0 flex-1">
-            {tab === 'chat' && (
+            <Panel id="chat" active={tab} opened={opened}>
               <ChatPanel
                 turns={turns}
                 pending={asking}
@@ -285,20 +338,68 @@ export function Workspace({ videoId }: { videoId: string }) {
                 disabled={!transcript}
                 disabledReason="There is no transcript for this video, so there is nothing to answer from."
               />
-            )}
-            {tab === 'transcript' &&
-              (transcript ? (
+            </Panel>
+
+            <Panel id="transcript" active={tab} opened={opened}>
+              {transcript ? (
                 <TranscriptPanel transcript={transcript} currentMs={currentMs} onSeek={seek} />
               ) : (
                 <p className="p-6 text-sm text-muted">No transcript is available for this video.</p>
-              ))}
-            {tab === 'viewers' && <ViewersPanel key={videoId} videoId={videoId} />}
-            {tab === 'marks' && (
+              )}
+            </Panel>
+
+            <Panel id="viewers" active={tab} opened={opened}>
+              <ViewersPanel key={videoId} videoId={videoId} />
+            </Panel>
+
+            <Panel id="marks" active={tab} opened={opened}>
               <MarksPanel key={videoId} videoId={videoId} currentMs={currentMs} onSeek={seek} />
-            )}
+            </Panel>
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * One tab's panel.
+ *
+ * `hidden` rather than unmounting, so a panel keeps its scroll position, its
+ * search, and the comments it already paid quota to fetch. Not rendered at all
+ * until first opened, so a tab nobody visits costs nothing.
+ *
+ * The fade runs on becoming visible and nowhere else. There is no exit — the
+ * outgoing panel is gone the instant the incoming one arrives, because two
+ * panels dissolving through each other in the same box reads as a rendering
+ * fault rather than as a transition.
+ */
+function Panel({
+  id,
+  active,
+  opened,
+  children,
+}: {
+  id: Tab
+  active: Tab
+  opened: ReadonlySet<Tab>
+  children: React.ReactNode
+}) {
+  if (!opened.has(id)) return null
+  const visible = active === id
+
+  return (
+    <div
+      id={`panel-${id}`}
+      role="tabpanel"
+      aria-labelledby={`tab-${id}`}
+      hidden={!visible}
+      // Focusable, because a panel whose content does not begin with a control
+      // is otherwise unreachable from the tab that names it.
+      tabIndex={0}
+      className={`h-full focus-visible:outline-none ${visible ? 'vs-fade-in' : ''}`}
+    >
+      {children}
     </div>
   )
 }

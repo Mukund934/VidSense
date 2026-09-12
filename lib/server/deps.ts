@@ -44,6 +44,30 @@ export function geminiModel(): string {
 }
 
 /**
+ * Where this deployment actually lives.
+ *
+ * Needed by `metadataBase` and `robots.txt`, and there is no way to derive it:
+ * a link preview is rendered by a crawler that never sees a request header.
+ * `NEXT_PUBLIC_SITE_URL` is the answer; Vercel's own `VERCEL_PROJECT_PRODUCTION_URL`
+ * is the fallback so a preview deployment is not silently wrong, and localhost
+ * is the last resort so a fresh clone boots without configuration.
+ */
+export function siteUrl(): string {
+  const explicit = process.env.NEXT_PUBLIC_SITE_URL?.trim()
+  if (explicit) return explicit.replace(/\/+$/, '')
+
+  const vercel = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim()
+  if (vercel) return `https://${vercel.replace(/^https?:\/\//, '').replace(/\/+$/, '')}`
+
+  return 'http://localhost:3000'
+}
+
+/** True once this is a real deployment rather than somebody's laptop. */
+export function isPubliclyHosted(): boolean {
+  return !siteUrl().startsWith('http://localhost')
+}
+
+/**
  * Which capabilities are actually available.
  *
  * The UI reads this to explain what is missing instead of failing silently —

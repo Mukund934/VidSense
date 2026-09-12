@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 
 import { ingestVideo, type IngestProgress } from '@/ingest/orchestrator'
-import { reachedProvider } from '@/ingest/source'
+import { sendsVideoToProvider } from '@/ingest/source'
 import { parseYouTubeUrl } from '@/ingest/url'
 import {
   capabilities,
@@ -61,6 +61,27 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   const encoder = new TextEncoder()
 
+  /**
+   * Settlement, started the instant a provider call becomes certain.
+   *
+   * The claim above reserved the worst case a video could be, because its
+   * length is not knowable before metadata. Holding that worst case until the
+   * ingest *finishes* would keep two and a half hours pinned to the deployment
+   * ceiling for the length of a transcription — and against a seven-hour
+   * ceiling that is most of it, so two concurrent ingests would fill the
+   * product however short the videos turned out to be.
+   *
+   * `onProviderAttempt` fires after the cache missed, after metadata came back
+   * and after the too-long refusal, immediately before the first request leaves
+   * the machine. Settling there replaces the reservation with the real duration
+   * and shrinks the pessimistic window from a whole ingest to a metadata
+   * lookup.
+   *
+   * `undefined` therefore means something precise: no source was ever called,
+   * so nothing was spent and the claim goes back in full.
+   */
+  let settlement: Promise<void> | undefined
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const send = (event: unknown) => {
@@ -81,6 +102,18 @@ export async function POST(request: NextRequest): Promise<Response> {
             sources: transcriptSources(body.transcript),
             now: () => Date.now(),
             onProgress: (p: IngestProgress) => send({ type: 'progress', ...p }),
+            onProviderAttempt: ({ sourceId, durationSec }) => {
+              // Once only: a reservation can be settled a single time, and the
+              // first source called is the one that spends the video.
+              if (settlement) return
+              // An ingest always counts as an ingest, but only a source that
+              // actually sends the video is charged hours for it — a pasted
+              // transcript is parsed locally and costs the provider nothing.
+              settlement = settle(claim, {
+                charged: true,
+                seconds: sendsVideoToProvider(sourceId) ? durationSec : 0,
+              })
+            },
           },
         )
         // Keep it in process so the ask and export routes do not pay for a
@@ -92,29 +125,20 @@ export async function POST(request: NextRequest): Promise<Response> {
           })
         }
 
-        // Settle what was claimed up front against what it actually cost.
-        //
-        // A cache hit reached no provider, so it gives everything back — the
-        // user's count and the seconds the deployment was holding for it. A
-        // degraded result is charged only when a source was genuinely called:
-        // a deleted video or an over-long one is refused before anything is
-        // sent, and nobody should pay for that. A *failed* transcript call is
-        // charged, because it was still made.
-        const called =
-          result.status === 'ready' || result.attempts.some((a) => reachedProvider(a.reason))
-        await settle(
-          claim,
-          result.fromCache || !called
-            ? { charged: false }
-            : { charged: true, seconds: result.metadata?.durationSec ?? 0 },
-        )
+        // Either a source was called and settlement is already under way, or
+        // none was — a cache hit, an unavailable video, one too long to send —
+        // and the whole claim goes back. A *failed* provider call is not
+        // refunded: it was still made, and leaving it free would be a way to
+        // burn the deployment's day by pasting links known to fail.
+        await (settlement ?? settle(claim, { charged: false }))
 
         send({ type: 'result', result })
       } catch (err) {
-        // The claim bought a provider call that did not happen. Give it back,
-        // or a run of failures quietly eats the day's budget — and, worse,
-        // leaves the deployment holding reserved seconds nobody will spend.
-        await settle(claim, { charged: false })
+        // If a source was already called, what it spent stands. If the throw
+        // came before that, the claim bought nothing and goes back — otherwise
+        // a run of failures quietly eats the day's budget and, worse, leaves
+        // the deployment holding reserved seconds nobody will ever spend.
+        await (settlement ?? settle(claim, { charged: false }))
         // The orchestrator does not throw for expected conditions, so anything
         // arriving here is a defect rather than a degraded video. Say so.
         send({

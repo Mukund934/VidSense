@@ -132,8 +132,26 @@ describe('POST /api/ingest', () => {
     attempts: [],
   })
 
+  /**
+   * An orchestrator that behaves like the real one where the budget is
+   * concerned: it announces the provider call before making it.
+   *
+   * That announcement is the whole settlement contract now, so a stub that
+   * skipped it would leave these tests passing against a route that charges
+   * nobody for anything. The `fromCache` path deliberately does not announce —
+   * a cache hit never reaches a source.
+   */
+  const orchestrator =
+    (result: ReturnType<typeof ready>, sourceId: 'gemini_url' | 'user_supplied' = 'gemini_url') =>
+    async (_req: unknown, deps: { onProviderAttempt?: (a: unknown) => void }) => {
+      if (!result.fromCache) {
+        deps.onProviderAttempt?.({ sourceId, durationSec: result.metadata.durationSec })
+      }
+      return result
+    }
+
   it('refuses once the daily budget is gone', async () => {
-    ingestImpl.mockResolvedValue(ready(false))
+    ingestImpl.mockImplementation(orchestrator(ready(false)))
 
     await drain(await ingest({ url: WATCH }))
     await drain(await ingest({ url: WATCH }))
@@ -144,7 +162,7 @@ describe('POST /api/ingest', () => {
   })
 
   it('says what ran out and when it comes back', async () => {
-    ingestImpl.mockResolvedValue(ready(false))
+    ingestImpl.mockImplementation(orchestrator(ready(false)))
     await drain(await ingest({ url: WATCH }))
     await drain(await ingest({ url: WATCH }))
 
@@ -159,7 +177,7 @@ describe('POST /api/ingest', () => {
   it('does not charge for a cache hit', async () => {
     // The shared cache is the cheapest thing the system does. Charging a user
     // for re-opening a video already in it would be charging them for nothing.
-    ingestImpl.mockResolvedValue(ready(true))
+    ingestImpl.mockImplementation(orchestrator(ready(true)))
 
     for (let i = 0; i < 5; i += 1) await drain(await ingest({ url: WATCH }))
 
@@ -178,7 +196,7 @@ describe('POST /api/ingest', () => {
   })
 
   it('charges for a real ingest, and records the seconds it cost', async () => {
-    ingestImpl.mockResolvedValue(ready(false))
+    ingestImpl.mockImplementation(orchestrator(ready(false)))
     await drain(await ingest({ url: WATCH }))
 
     const { usageToday } = await import('@/lib/server/quota')
@@ -188,8 +206,43 @@ describe('POST /api/ingest', () => {
     expect(usage.videoSeconds).toBe(metadata.durationSec)
   })
 
+  it('counts a pasted transcript as an ingest but charges it no video hours', async () => {
+    // It is still a video analysed, so the count stands. Nothing was sent to
+    // the provider, so the hours must not be — the seconds budget exists to
+    // track what Google watched, and Google watched nothing here.
+    ingestImpl.mockImplementation(orchestrator(ready(false), 'user_supplied'))
+    await drain(await ingest({ url: WATCH, transcript: 'some pasted text' }))
+
+    const { usageToday } = await import('@/lib/server/quota')
+    const usage = await usageToday('alice')
+
+    expect(usage.ingest).toBe(1)
+    expect(usage.videoSeconds).toBe(0)
+  })
+
+  it('charges nothing when no source was ever reached', async () => {
+    // A deleted video, or one too long to send: refused after metadata and
+    // before any request leaves. The real orchestrator announces no attempt, so
+    // the whole claim goes back — count and reserved seconds alike.
+    ingestImpl.mockImplementation(async () => ({
+      videoId: 'vid12345678',
+      status: 'degraded' as const,
+      fromCache: false,
+      metadata,
+      degraded: { reason: 'too_long' as const, message: 'too long' },
+      attempts: [],
+    }))
+
+    for (let i = 0; i < 4; i += 1) await drain(await ingest({ url: WATCH }))
+
+    // Four attempts against a budget of two, and none of them charged.
+    expect(ingestImpl).toHaveBeenCalledTimes(4)
+    const { usageToday } = await import('@/lib/server/quota')
+    expect((await usageToday('alice')).ingest).toBe(0)
+  })
+
   it('keeps one user out of the budget belonging to another', async () => {
-    ingestImpl.mockResolvedValue(ready(false))
+    ingestImpl.mockImplementation(orchestrator(ready(false)))
 
     uid.mockResolvedValue('alice')
     await drain(await ingest({ url: WATCH }))
@@ -203,7 +256,7 @@ describe('POST /api/ingest', () => {
   it('refuses a burst before the daily budget is anywhere near spent', async () => {
     process.env.INGESTS_PER_DAY = '100'
     process.env.INGESTS_PER_MINUTE = '1'
-    ingestImpl.mockResolvedValue(ready(false))
+    ingestImpl.mockImplementation(orchestrator(ready(false)))
 
     await drain(await ingest({ url: WATCH }))
     const second = await ingest({ url: WATCH })
@@ -216,7 +269,7 @@ describe('POST /api/ingest', () => {
 
   it('refuses before anything is fetched', async () => {
     process.env.INGESTS_PER_MINUTE = '0'
-    ingestImpl.mockResolvedValue(ready(false))
+    ingestImpl.mockImplementation(orchestrator(ready(false)))
 
     expect((await ingest({ url: WATCH })).status).toBe(429)
     // "Before" is the load-bearing word: a check that runs after the provider

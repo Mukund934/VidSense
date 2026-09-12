@@ -68,29 +68,20 @@ export function isTerminal(reason: FailureReason): boolean {
 }
 
 /**
- * Reasons that mean nothing was ever sent anywhere.
+ * Does calling this source send the video to a metered provider?
  *
- * `not_configured` is a missing key and `unsupported_input` is a source
- * declining before it is asked — in both, the provider never heard from us, so
- * the attempt consumed none of the shared quota.
- */
-const NEVER_CALLED: ReadonlySet<FailureReason> = new Set<FailureReason>([
-  'not_configured',
-  'unsupported_input',
-])
-
-/**
- * Did this attempt actually cost the provider something?
+ * The distinction is what the daily *seconds* budget is actually counting.
+ * `gemini_url` hands Google a video to watch, and that is the eight-hours-a-day
+ * ceiling being spent. `user_supplied` parses text the user already had — it is
+ * still an ingest, and still counts as one, but it costs the provider nothing
+ * and must not be billed hours it never used.
  *
- * Used to decide whether a failed ingest is charged against the daily budgets.
- * The default leans towards *yes*, and deliberately: a rate-limited or errored
- * call may still have been metered upstream, and the two mistakes are not
- * symmetric. Over-charging costs one person one video out of five. Under-
- * charging leaves a way to burn the whole deployment's day for free, by pasting
- * links that are known to fail.
+ * `creator_oauth` is unimplemented, and when it arrives it spends YouTube quota
+ * units rather than provider video-hours, so it belongs on this side of the
+ * line until something measures otherwise.
  */
-export function reachedProvider(reason: FailureReason): boolean {
-  return !NEVER_CALLED.has(reason)
+export function sendsVideoToProvider(id: SourceId): boolean {
+  return id === 'gemini_url'
 }
 
 export interface SourceFailure {

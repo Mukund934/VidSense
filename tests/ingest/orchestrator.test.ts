@@ -406,3 +406,119 @@ describe('storage outages never cost the user their transcript', () => {
     expect(result.status).toBe('degraded')
   })
 })
+
+describe('onProviderAttempt', () => {
+  /**
+   * The signal a budget settles on.
+   *
+   * The ingest route reserves the worst case a video could be, because its
+   * length is unknown until metadata arrives. This callback is what lets it
+   * swap that reservation for the real duration at the earliest honest moment —
+   * so the rule it has to keep is narrow and absolute: it fires when, and only
+   * when, a request is about to leave the machine.
+   */
+  const attempts = () => {
+    const seen: Array<{ sourceId: string; durationSec: number }> = []
+    return { seen, onProviderAttempt: (a: { sourceId: string; durationSec: number }) => seen.push(a) }
+  }
+
+  it('fires with the real duration once a source is about to be called', async () => {
+    const { seen, onProviderAttempt } = attempts()
+    await ingestVideo({ uid: UID, ref }, deps({ onProviderAttempt }))
+
+    expect(seen).toEqual([{ sourceId: 'gemini_url', durationSec: META.durationSec }])
+  })
+
+  it('fires before the source has answered, not after', async () => {
+    // The entire point is to release the reservation while the provider is
+    // still working. Firing on completion would buy nothing.
+    const { seen, onProviderAttempt } = attempts()
+    const slow = transcriptSource()
+    let duringFetch: number | null = null
+    slow.fetch.mockImplementation(async (input: VideoInput) => {
+      duringFetch = seen.length
+      return {
+        ok: true,
+        transcript: buildTranscript({
+          videoId: input.ref.videoId,
+          provenance: 'gemini_url',
+          language: 'en',
+          durationMs: 7_200_000,
+          cues: [{ startMs: 0, endMs: 4000, text: 'a' }],
+        }),
+      }
+    })
+
+    await ingestVideo({ uid: UID, ref }, deps({ sources: [slow], onProviderAttempt }))
+    expect(duringFetch).toBe(1)
+  })
+
+  it('stays silent on a cache hit, which reaches no source at all', async () => {
+    const { seen, onProviderAttempt } = attempts()
+    const d = deps({ onProviderAttempt })
+    await ingestVideo({ uid: UID, ref }, d)
+    seen.length = 0
+
+    await ingestVideo({ uid: UID, ref }, deps({ videos: d.videos, onProviderAttempt }))
+    expect(seen).toEqual([])
+  })
+
+  it('stays silent when the video is too long to send', async () => {
+    // Refused after metadata but before any source. Charging for this would
+    // bill the deployment two and a half hours for a call never made.
+    const { seen, onProviderAttempt } = attempts()
+    const long = metadataSource({
+      ok: true,
+      metadata: { ...META, durationSec: 60 * 60 * 24 },
+      availability: 'public',
+    })
+
+    const result = await ingestVideo({ uid: UID, ref }, deps({ metadata: long, onProviderAttempt }))
+    expect(result.status).toBe('degraded')
+    expect(seen).toEqual([])
+  })
+
+  it('stays silent when metadata itself failed', async () => {
+    const { seen, onProviderAttempt } = attempts()
+    const broken = metadataSource({ ok: false, reason: 'not_found' })
+
+    await ingestVideo({ uid: UID, ref }, deps({ metadata: broken, onProviderAttempt }))
+    expect(seen).toEqual([])
+  })
+
+  it('stays silent for a source that declined the input', async () => {
+    // `canHandle` false is how a missing API key presents. Nothing was sent, so
+    // nothing may be charged.
+    const { seen, onProviderAttempt } = attempts()
+    const declining = { ...transcriptSource(), canHandle: () => false }
+
+    await ingestVideo({ uid: UID, ref }, deps({ sources: [declining], onProviderAttempt }))
+    expect(seen).toEqual([])
+  })
+
+  it('names the source, so a local parse is not billed as provider video', async () => {
+    const { seen, onProviderAttempt } = attempts()
+    const pasted = transcriptSource('user_supplied', 3, 'user_supplied')
+
+    await ingestVideo(
+      { uid: UID, ref, suppliedTranscript: 'x' },
+      deps({ sources: [pasted], onProviderAttempt }),
+    )
+    expect(seen.map((a) => a.sourceId)).toEqual(['user_supplied'])
+  })
+
+  it('fires for each source actually tried, so the first can be charged', async () => {
+    const { seen, onProviderAttempt } = attempts()
+    const failing = transcriptSource()
+    failing.fetch.mockResolvedValue({ ok: false, reason: 'no_transcript' })
+    const pasted = transcriptSource('user_supplied', 3, 'user_supplied')
+
+    await ingestVideo(
+      { uid: UID, ref, suppliedTranscript: 'x' },
+      deps({ sources: [failing, pasted], onProviderAttempt }),
+    )
+    // Gemini was called and failed; the paste then answered. The route charges
+    // the first, because that is the one that spent something.
+    expect(seen.map((a) => a.sourceId)).toEqual(['gemini_url', 'user_supplied'])
+  })
+})

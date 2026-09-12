@@ -16,6 +16,7 @@ import {
   type FailureReason,
   type IngestOutcome,
   type SourceFailure,
+  type SourceId,
   type TranscriptSource,
   type VideoInput,
   isTerminal,
@@ -55,8 +56,13 @@ function degrade(reason: DegradedReason, attempts: SourceFailure[]): IngestOutco
 }
 
 export interface AcquireOptions {
-  /** Called as each source is attempted, for progressive ingest UI. */
-  readonly onAttempt?: (sourceId: string) => void
+  /**
+   * Called immediately before a source is asked to fetch, and only for one that
+   * said it could handle the input. Nothing has been spent before it fires and
+   * a request is about to leave the machine after it does, which makes it the
+   * honest point to charge a budget as well as to move a progress bar.
+   */
+  readonly onAttempt?: (sourceId: SourceId) => void
 }
 
 export async function acquireTranscript(

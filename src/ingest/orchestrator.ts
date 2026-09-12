@@ -22,7 +22,13 @@ import type { Cue, TimedTranscript } from '@/domain/transcript'
 import { buildTranscript } from '@/domain/transcript'
 import { SCHEMA_VERSION, nextExpiry, type HistoryDoc, type VideoMetadata } from '@/data/schema'
 import { acquireTranscript } from '@/ingest/chain'
-import type { DegradedReason, SourceFailure, TranscriptSource, VideoInput } from '@/ingest/source'
+import type {
+  DegradedReason,
+  SourceFailure,
+  SourceId,
+  TranscriptSource,
+  VideoInput,
+} from '@/ingest/source'
 import { DEGRADED_MESSAGE } from '@/ingest/source'
 import type { Clock, HistoryStore, MetadataSource, StoredVideo, VideoStore } from '@/ingest/ports'
 import { decodeBlob, decodeChunked } from '@/domain/blob'
@@ -58,6 +64,24 @@ export interface IngestDeps {
   readonly sources: readonly TranscriptSource[]
   readonly now: Clock
   readonly onProgress?: (p: IngestProgress) => void
+  /**
+   * A source is about to be called, and the video's length is now known.
+   *
+   * Separate from `onProgress`, which exists for the UI. This fires at the one
+   * instant that matters to a budget: after the cache missed, after metadata
+   * came back, after the too-long and availability refusals, and *before* any
+   * request leaves the machine. Everything upstream of this point costs the
+   * provider nothing, and everything downstream of it is committed.
+   *
+   * The ingest route uses it to settle its quota reservation against the real
+   * duration rather than the worst case, which is what keeps a two-and-a-half
+   * hour hold from sitting on the deployment ceiling for the length of a
+   * transcription.
+   */
+  readonly onProviderAttempt?: (attempt: {
+    readonly sourceId: SourceId
+    readonly durationSec: number
+  }) => void
 }
 
 export interface IngestRequest {
@@ -215,7 +239,14 @@ async function performIngest(req: IngestRequest, deps: IngestDeps): Promise<Inge
   }
 
   const outcome = await acquireTranscript(deps.sources, input, {
-    onAttempt: (sourceId) => emit({ stage: 'transcript', detail: sourceId }),
+    onAttempt: (sourceId) => {
+      emit({ stage: 'transcript', detail: sourceId })
+      // `acquireTranscript` calls this immediately before `source.fetch`, and
+      // only for a source that said it could handle the input — so this is the
+      // last moment before anything is spent, and the first at which it is
+      // certain that something will be.
+      deps.onProviderAttempt?.({ sourceId, durationSec: meta.metadata.durationSec })
+    },
   })
 
   if (outcome.kind === 'degraded') {

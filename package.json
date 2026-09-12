@@ -18,7 +18,7 @@
     "typecheck": "tsc --noEmit",
     "emulators": "firebase emulators:start --only auth,firestore",
     "experiment": "tsx scripts/experiments/run.ts",
-    "lint": "eslint app components lib",
+    "lint": "eslint app components lib src scripts tests proxy.ts",
     "scan:secrets": "tsx scripts/scan-secrets.ts",
     "smoke": "tsx scripts/smoke.ts"
   },

@@ -7,8 +7,11 @@ import coreWebVitals from 'eslint-config-next/core-web-vitals'
  * of mistake that is invisible in a screenshot and immediately obvious to
  * anyone using a keyboard or a screen reader.
  *
- * `docs/` is excluded because it is private and not shipped; `src/` and
- * `tests/` are covered by `npm run typecheck` and the suite.
+ * Everything tracked is linted. `src/`, `scripts/` and `tests/` were left out
+ * of the npm script at first on the grounds that the typechecker and the suite
+ * already cover them — which is true of types and untrue of everything else a
+ * linter finds. They pass clean, so including them costs a second and closes
+ * the gap. `docs/` stays out because it is private and not shipped.
  */
 export default [
   { ignores: ['.next/**', 'node_modules/**', 'docs/**', 'tmp/**', 'next-env.d.ts'] },

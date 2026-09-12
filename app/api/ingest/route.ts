@@ -10,6 +10,7 @@ import {
   transcriptSources,
   videoStore,
 } from '@/lib/server/deps'
+import { describeError, log, uidHash } from '@/lib/server/log'
 import { currentUid } from '@/lib/server/session'
 import { settle, spend, tooManyRequests } from '@/lib/server/quota'
 import { remember } from '@/lib/server/cache'
@@ -60,6 +61,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   if (!claim.decision.allowed) return tooManyRequests(claim.decision)
 
   const encoder = new TextEncoder()
+  const startedAt = Date.now()
 
   /**
    * Settlement, started the instant a provider call becomes certain.
@@ -116,6 +118,20 @@ export async function POST(request: NextRequest): Promise<Response> {
             },
           },
         )
+        log.info('ingest.done', {
+          uid: uidHash(uid),
+          videoId: result.videoId,
+          status: result.status,
+          fromCache: result.fromCache,
+          hasTranscript: Boolean(result.transcript),
+          provenance: result.transcript?.provenance,
+          degraded: result.degraded?.reason,
+          // Every source that was tried and did not answer. This is the only
+          // place the fallback chain's shape is visible from outside.
+          attempts: result.attempts.map((a) => `${a.source}:${a.reason}`).join(',') || undefined,
+          ms: Date.now() - startedAt,
+        })
+
         // Keep it in process so the ask and export routes do not pay for a
         // decode, and so the product still works without Firestore configured.
         if (result.metadata) {
@@ -141,6 +157,12 @@ export async function POST(request: NextRequest): Promise<Response> {
         await (settlement ?? settle(claim, { charged: false }))
         // The orchestrator does not throw for expected conditions, so anything
         // arriving here is a defect rather than a degraded video. Say so.
+        log.error('ingest.failed', {
+          uid: uidHash(uid),
+          videoId: ref.videoId,
+          detail: describeError(err),
+          ms: Date.now() - startedAt,
+        })
         send({
           type: 'error',
           message: err instanceof Error ? err.message : 'Ingest failed unexpectedly.',

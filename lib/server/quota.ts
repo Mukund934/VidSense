@@ -45,6 +45,7 @@ import {
 } from '@/quota/budget'
 import { BurstLimiter } from '@/quota/burst'
 import { firestore } from '@/lib/server/deps'
+import { log } from '@/lib/server/log'
 
 /**
  * Process-wide, and deliberately so.
@@ -242,6 +243,17 @@ export async function deploymentToday(now = Date.now()): Promise<DeploymentUsage
  * carries the sentence from `budget.ts` so the wording is the same everywhere.
  */
 export function tooManyRequests(decision: Decision): Response {
+  // The one refusal a user sees that is not about their video. Logged because
+  // it is also the signal that a cap is set wrong: a deployment where the
+  // deployment-wide meter refuses all day needs its ceiling raised or its
+  // provider plan changed, and nothing else would ever say so.
+  log.warn('quota.refused', {
+    meter: decision.meter,
+    used: decision.used,
+    limit: decision.limit,
+    retryAfterSec: decision.retryAfterSec,
+  })
+
   return Response.json(
     {
       error: 'rate_limited',

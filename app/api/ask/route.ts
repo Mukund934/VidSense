@@ -9,6 +9,7 @@ import {
   verifier,
 } from '@/lib/server/deps'
 import { settle, spend, tooManyRequests } from '@/lib/server/quota'
+import { describeError, log, uidHash } from '@/lib/server/log'
 import { currentUid } from '@/lib/server/session'
 import { loadVideo } from '@/lib/server/video'
 
@@ -55,6 +56,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   const claim = await spend(uid, 'ask')
   if (!claim.decision.allowed) return tooManyRequests(claim.decision)
 
+  const startedAt = Date.now()
   try {
     const answer = await ask(video.transcript, question, completion())
 
@@ -69,11 +71,31 @@ export async function POST(request: NextRequest): Promise<Response> {
     // was taken at the claim — but it is called anyway so that "every allowed
     // claim is settled" stays true of every path rather than nearly all of them.
     await settle(claim, { charged: true })
+    // The status is the interesting field. A deployment where most answers are
+    // `unreadable` has a model or a prompt problem, and one where most are
+    // `not_in_video` has an ingest problem — neither is visible any other way,
+    // because both look to the user like the product working.
+    log.info('ask.answered', {
+      uid: uidHash(uid),
+      videoId,
+      status: checked.status,
+      claims: checked.claims.length,
+      rejected: checked.rejected.length,
+      verified: verificationEnabled(),
+      ms: Date.now() - startedAt,
+    })
     return Response.json({ answer: checked })
   } catch (err) {
     // No answer was produced, so the question should not count against either
     // budget. Being unable to answer is not something to charge for.
     await settle(claim, { charged: false })
+    log.error('ask.failed', {
+      uid: uidHash(uid),
+      videoId,
+      provider: err instanceof ModelUnavailableError,
+      detail: describeError(err),
+      ms: Date.now() - startedAt,
+    })
     if (err instanceof ModelUnavailableError) {
       return Response.json({ error: 'model_unavailable', detail: err.message }, { status: 503 })
     }

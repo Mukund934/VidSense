@@ -288,7 +288,9 @@ describe('POST /api/ingest', () => {
 describe('POST /api/ask', () => {
   beforeEach(() => {
     loadVideo.mockResolvedValue({ metadata, transcript: transcript() })
-    askImpl.mockResolvedValue({ text: 'an answer', claims: [] })
+    // A whole `Answer`, not a fragment: the route reads its status and both
+    // of its lists on the way out, so a partial fake fails for the wrong reason.
+    askImpl.mockResolvedValue({ status: 'answered', claims: [], rejected: [] })
   })
 
   it('refuses once the daily budget is gone', async () => {

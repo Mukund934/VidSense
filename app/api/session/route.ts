@@ -2,6 +2,7 @@ import { cookies } from 'next/headers'
 import { getAuth } from 'firebase-admin/auth'
 
 import { adminApp } from '@/lib/server/deps'
+import { describeError, log } from '@/lib/server/log'
 import { SESSION_COOKIE, SESSION_MAX_AGE_MS } from '@/lib/server/session'
 
 export const runtime = 'nodejs'
@@ -40,6 +41,10 @@ export async function POST(request: Request): Promise<Response> {
     const session = await getAuth(app).createSessionCookie(body.idToken, {
       expiresIn: SESSION_MAX_AGE_MS,
     })
+    // No uid here. Reading one back would mean verifying the cookie we have
+    // just minted purely to log it, and every request this session goes on to
+    // make already carries `uidHash`.
+    log.info('session.created')
     const jar = await cookies()
     jar.set(SESSION_COOKIE, session, {
       httpOnly: true,
@@ -49,9 +54,12 @@ export async function POST(request: Request): Promise<Response> {
       secure: process.env.NODE_ENV === 'production',
     })
     return Response.json({ ok: true })
-  } catch {
-    // Deliberately not echoing the verification error: it can describe the
-    // token, and the caller already knows what they sent.
+  } catch (err) {
+    // A run of these is either a misconfigured project or somebody trying
+    // tokens, and both are worth being able to see.
+    log.warn('session.rejected', { detail: describeError(err) })
+    // Deliberately not echoing the verification error to the caller: it can
+    // describe the token, and they already know what they sent.
     return Response.json({ error: 'invalid_token' }, { status: 401 })
   }
 }

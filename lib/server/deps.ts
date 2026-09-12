@@ -90,6 +90,39 @@ function firestoreReady(): boolean {
   )
 }
 
+/**
+ * The service account, from a path **or** from the JSON itself.
+ *
+ * The variable is named `..._PATH` and originally only ever read a file, which
+ * works on a laptop and cannot work on Vercel: a serverless deployment has
+ * nowhere to put a file and configures secrets as environment variables. So a
+ * value that starts with `{` is the credential rather than a route to it.
+ *
+ * Accepting both rather than renaming the variable, because the name is already
+ * in `.env.local`, in `.env.example` and in the owner's setup notes, and a
+ * rename that silently disables storage is a worse trade than a name that is
+ * now slightly too narrow.
+ *
+ * A malformed value returns null rather than throwing. Every store already
+ * degrades to "we did not save that", and a credential typo should cost the
+ * cache rather than the whole product.
+ *
+ * Exported so the two forms can be tested directly. Getting this wrong is not
+ * a visible failure — the app boots, signs nobody in and forgets everything.
+ */
+export function serviceAccount(): object | null {
+  const value = process.env.FIREBASE_SERVICE_ACCOUNT_PATH?.trim()
+  if (!value) return null
+
+  try {
+    const json = value.startsWith('{') ? value : readFileSync(value, 'utf8')
+    const parsed: unknown = JSON.parse(json)
+    return parsed && typeof parsed === 'object' ? (parsed as object) : null
+  } catch {
+    return null
+  }
+}
+
 export function adminApp(): App | null {
   if (cachedApp) return cachedApp
   if (!firestoreReady()) return null
@@ -108,11 +141,9 @@ export function adminApp(): App | null {
       return cachedApp
     }
 
-    const path = process.env.FIREBASE_SERVICE_ACCOUNT_PATH
+    const account = serviceAccount()
     cachedApp = initializeApp(
-      path
-        ? { projectId, credential: cert(JSON.parse(readFileSync(path, 'utf8')) as object) }
-        : { projectId },
+      account ? { projectId, credential: cert(account) } : { projectId },
     )
     return cachedApp
   } catch {

@@ -418,6 +418,12 @@ analyses nothing, so it spends no provider quota and is safe to run repeatedly.
 
 - **Timestamps are approximate.** See the guarantees section above. Receipts state their own precision, and
   refuse to offer a jump link when they cannot support one.
+- **A transcript that needed no correction gets no jump links.** The duration-anchored rescale only
+  applies when the model's timings overshoot the video's true length, which is the normal case. When
+  they do not — most often on a very short video — the transcript stays `model_raw`, whose tolerance
+  comes from measuring *uncorrected* output and is a flat 160 s. That is conservative rather than
+  right: it is not evidence the timings are worse, only that nothing was corrected. Verified live on
+  a 19-second video, which produced a correct quote and, deliberately, no jump.
 - **The entailment gate is off by default** and its recall on near-miss pairings is unmeasured. It is proven
   not to destroy correct citations, which is a different and weaker claim than being proven to catch bad ones.
 - **Generator and verifier are the same model family.** A cross-vendor verifier would be stronger; the

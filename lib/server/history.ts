@@ -2,6 +2,7 @@ import 'server-only'
 
 import { paths, type HistoryDoc } from '@/data/schema'
 import { firestore } from '@/lib/server/deps'
+import { withTimeout } from '@/lib/server/timeout'
 
 /**
  * The user's own record of what they have analysed.
@@ -16,11 +17,10 @@ export async function listHistory(uid: string, limit = 60): Promise<HistoryDoc[]
   if (!db) return []
 
   try {
-    const snapshot = await db
-      .collection(paths.history(uid))
-      .orderBy('lastOpenedAt', 'desc')
-      .limit(limit)
-      .get()
+    const snapshot = await withTimeout(
+      'history.list',
+      db.collection(paths.history(uid)).orderBy('lastOpenedAt', 'desc').limit(limit).get(),
+    )
 
     return snapshot.docs
       .map((doc) => doc.data() as HistoryDoc)

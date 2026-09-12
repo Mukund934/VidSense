@@ -28,6 +28,7 @@ import { YouTubeMetadataSource } from '@/ingest/sources/youtube-metadata'
 import type { HistoryStore, VideoStore } from '@/ingest/ports'
 import type { TranscriptSource } from '@/ingest/source'
 import { buildVerifyPrompt, parseVerdict, type Verifier } from '@/answer/verify'
+import { withTimeout } from '@/lib/server/timeout'
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta'
 
@@ -162,11 +163,16 @@ export function firestore(): Firestore | null {
 }
 
 /**
- * Stores that never throw.
+ * Stores that never throw, and never wait for ever.
  *
  * A storage outage must degrade to "we did not cache that", not to a failed
  * request — the transcript the user is waiting for has already been paid for.
  * When Firestore is unavailable the product still works; it just forgets.
+ *
+ * The timeout is the other half of that, and it was missing. A client pointed
+ * at somewhere nothing is listening does not fail; it retries for about ninety
+ * seconds, so the request reached its degraded mode long after it was any use.
+ * See `lib/server/timeout.ts`.
  */
 export function videoStore(): VideoStore {
   const db = firestore()
@@ -174,10 +180,10 @@ export function videoStore(): VideoStore {
   const real = new FirestoreVideoStore(db)
   return {
     async get(id) {
-      try { return await real.get(id) } catch { return null }
+      try { return await withTimeout('videos.get', real.get(id)) } catch { return null }
     },
     async put(id, doc) {
-      try { await real.put(id, doc) } catch { /* forgetting is survivable */ }
+      try { await withTimeout('videos.put', real.put(id, doc)) } catch { /* forgetting is survivable */ }
     },
   }
 }
@@ -188,7 +194,11 @@ export function historyStore(): HistoryStore {
   const real = new FirestoreHistoryStore(db)
   return {
     async touch(uid, entry) {
-      try { await real.touch(uid, entry) } catch { /* forgetting is survivable */ }
+      try {
+        await withTimeout('history.touch', real.touch(uid, entry))
+      } catch {
+        /* forgetting is survivable */
+      }
     },
   }
 }

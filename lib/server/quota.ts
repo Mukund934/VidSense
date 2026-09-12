@@ -46,6 +46,7 @@ import {
 import { BurstLimiter } from '@/quota/burst'
 import { firestore } from '@/lib/server/deps'
 import { log } from '@/lib/server/log'
+import { withTimeout } from '@/lib/server/timeout'
 
 /**
  * Process-wide, and deliberately so.
@@ -121,18 +122,25 @@ export async function spend(uid: string, meter: Meter, now = Date.now()): Promis
 
   let userDecision: Decision
   try {
-    userDecision = await users.claim(uid, meter, configured, now)
+    // Every store call here is on a clock. An unreachable Firestore does not
+    // fail — it retries for about ninety seconds — so without a bound the
+    // "allow on storage failure" rule below only takes effect long after the
+    // request was any use. See `lib/server/timeout.ts`.
+    userDecision = await withTimeout('usage.claim', users.claim(uid, meter, configured, now))
   } catch {
     userDecision = { allowed: true, meter, used: 0, limit: configured.perDay[meter], message: '' }
   }
   if (!userDecision.allowed) return { decision: userDecision, meter, uid }
 
   try {
-    const claim = await deployment.claim(meter, deploymentLimits(), MAX_DURATION_SEC, now)
+    const claim = await withTimeout(
+      'deployment.claim',
+      deployment.claim(meter, deploymentLimits(), MAX_DURATION_SEC, now),
+    )
     if (!claim.decision.allowed) {
       // The user's own budget must not be spent on a request the deployment
       // then refused: they did nothing, so it should cost them nothing.
-      await users.refund(uid, meter, now).catch(() => undefined)
+      await withTimeout('usage.refund', users.refund(uid, meter, now)).catch(() => undefined)
       return { decision: claim.decision, meter, uid }
     }
     return {
@@ -142,7 +150,7 @@ export async function spend(uid: string, meter: Meter, now = Date.now()): Promis
       ...(claim.reservation ? { reservation: claim.reservation } : {}),
     }
   } catch (err) {
-    await users.refund(uid, meter, now).catch(() => undefined)
+    await withTimeout('usage.refund', users.refund(uid, meter, now)).catch(() => undefined)
 
     // The two ledgers fail in opposite directions, on purpose.
     //
@@ -203,15 +211,24 @@ export async function settle(spent: Spend, outcome: Outcome, now = Date.now()): 
   if (outcome.charged) {
     const seconds = outcome.seconds ?? 0
     await Promise.all([
-      seconds > 0 ? users.recordSeconds(uid, seconds, now).catch(() => undefined) : undefined,
-      deployment.settle(meter, reservation, seconds, now).catch(() => undefined),
+      seconds > 0
+        ? withTimeout('usage.recordSeconds', users.recordSeconds(uid, seconds, now)).catch(
+            () => undefined,
+          )
+        : undefined,
+      withTimeout(
+        'deployment.settle',
+        deployment.settle(meter, reservation, seconds, now),
+      ).catch(() => undefined),
     ])
     return
   }
 
   await Promise.all([
-    users.refund(uid, meter, now).catch(() => undefined),
-    deployment.release(meter, reservation, now).catch(() => undefined),
+    withTimeout('usage.refund', users.refund(uid, meter, now)).catch(() => undefined),
+    withTimeout('deployment.release', deployment.release(meter, reservation, now)).catch(
+      () => undefined,
+    ),
   ])
 }
 
@@ -310,7 +327,7 @@ export interface Headroom {
 export async function headroom(uid: string, now = Date.now()): Promise<Headroom[] | null> {
   const configured = limits()
   try {
-    const usage = await usageStore().read(uid, now)
+    const usage = await withTimeout('usage.read', usageStore().read(uid, now))
     return [
       { meter: 'ingest', label: 'Videos analysed', used: usage.ingest, limit: configured.perDay.ingest },
       { meter: 'ask', label: 'Questions asked', used: usage.ask, limit: configured.perDay.ask },

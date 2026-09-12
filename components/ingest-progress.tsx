@@ -1,5 +1,7 @@
 'use client'
 
+import Image from 'next/image'
+
 import type { IngestStage } from '@/ingest/orchestrator'
 import { Spinner } from '@/components/ui'
 
@@ -16,6 +18,12 @@ import { Spinner } from '@/components/ui'
  * The three states are deliberately different in kind rather than in shade:
  * done is a tick, running is a spinner, pending is an outline. A reader
  * squinting at a small progress list should not have to compare two greys.
+ *
+ * The thumbnail is there for a different reason. Somebody who clicked a video
+ * in their history and then waited thirty seconds in front of the word "video"
+ * has no confirmation they opened the right one. The still is derivable from
+ * the id alone — no API call, no key, no quota — so it costs nothing to answer
+ * that immediately, before the metadata lookup has returned anything.
  */
 
 const STEPS: ReadonlyArray<{ stage: IngestStage; label: string; done: string }> = [
@@ -26,12 +34,21 @@ const STEPS: ReadonlyArray<{ stage: IngestStage; label: string; done: string }> 
 
 const ORDER: IngestStage[] = ['metadata', 'transcript', 'storing', 'ready']
 
-export function IngestProgressView({ stage, detail }: { stage: IngestStage; detail?: string }) {
+export function IngestProgressView({
+  stage,
+  detail,
+  videoId,
+}: {
+  stage: IngestStage
+  detail?: string
+  videoId?: string
+}) {
   // A cache hit skips the whole sequence, and pretending otherwise would be a
   // fake progress bar for work that is not happening.
   if (stage === 'cached') {
     return (
       <Shell>
+        {videoId && <Thumbnail videoId={videoId} />}
         <p className="vs-enter font-medium">Found it — you have analysed this before</p>
         <p className="mt-1 text-sm text-muted">Opening your workspace.</p>
       </Shell>
@@ -42,6 +59,7 @@ export function IngestProgressView({ stage, detail }: { stage: IngestStage; deta
 
   return (
     <Shell>
+      {videoId && <Thumbnail videoId={videoId} />}
       <p className="text-sm font-medium text-muted">Reading this video</p>
 
       <ol className="mt-5 space-y-3.5 text-left">
@@ -81,6 +99,32 @@ export function IngestProgressView({ stage, detail }: { stage: IngestStage; deta
         A long video can take up to a minute. Nothing is downloaded — VidSense reads and reasons.
       </p>
     </Shell>
+  )
+}
+
+/**
+ * The video's own still, from its id.
+ *
+ * `unoptimized` on purpose. YouTube already serves these at a sensible size and
+ * compression, so putting them through the image optimiser buys nothing and
+ * spends a metered allowance on every deployment that has one — the same
+ * free-first reasoning as everywhere else. `onError` hides it rather than
+ * leaving a broken frame: a still that will not load is a cosmetic loss, and
+ * the progress list underneath is the part that matters.
+ */
+function Thumbnail({ videoId }: { videoId: string }) {
+  return (
+    <Image
+      src={`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`}
+      alt=""
+      width={320}
+      height={180}
+      unoptimized
+      onError={(event) => {
+        event.currentTarget.style.display = 'none'
+      }}
+      className="vs-enter mx-auto mb-5 aspect-video w-full rounded-lg border border-line object-cover"
+    />
   )
 }
 

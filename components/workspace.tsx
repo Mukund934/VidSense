@@ -231,7 +231,11 @@ export function Workspace({ videoId }: { videoId: string }) {
 
   if (phase.kind === 'ingesting') {
     return (
-      <IngestProgressView stage={phase.stage} {...(phase.detail ? { detail: phase.detail } : {})} />
+      <IngestProgressView
+        stage={phase.stage}
+        videoId={videoId}
+        {...(phase.detail ? { detail: phase.detail } : {})}
+      />
     )
   }
   if (phase.kind === 'failed') return <Failed message={phase.message} />

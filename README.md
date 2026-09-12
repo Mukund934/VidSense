@@ -320,9 +320,14 @@ VidSense is built to run on free tiers during development and early use.
 - **A deployment-wide ceiling sits behind those**, because a signed-out identity is a cookie and per-user
   caps therefore bound one honest person rather than ten arrivals. Because a video's length is unknown until
   its metadata has been fetched, an ingest reserves the worst case up front and settles to the real duration
-  afterwards — so what the deployment has promised can never exceed the ceiling, however many requests
-  arrive together. Reservations expire, so a request that dies mid-flight cannot hold the budget until
-  midnight.
+  the moment a provider call becomes certain — measured at 259 ms, rather than holding it for the length of
+  a transcription. So what the deployment has promised can never exceed the ceiling, however many requests
+  arrive together, without the ceiling filling up with videos that turned out to be short. Reservations
+  expire, so a request that dies mid-flight cannot hold the budget until midnight.
+- **Only what the provider actually watched is billed as hours.** A pasted transcript is parsed locally, so
+  it counts as an ingest and costs no video time; a video refused for being too long, or one that does not
+  exist, never reaches a source and costs nothing at all. A provider call that failed *is* charged, because
+  it was still made.
 
 ---
 

@@ -49,6 +49,20 @@ describe('ask', () => {
     expect(answer.message).toMatch(/does not address/)
   })
 
+  it('says what it searched, so the refusal reads as a finding', async () => {
+    // "This video does not address that question" is the same sentence a model
+    // produces when it has not looked. Naming the corpus is the difference.
+    const answer = await ask(transcript(), 'q', vi.fn(async () => 'NOT_IN_VIDEO'))
+    expect(answer.message).toMatch(/I searched all \d+ lines/)
+  })
+
+  it('claims only the transcript, which is all this layer reads', async () => {
+    // The comments are a separate lane behind a separate route. Saying "and 300
+    // comments" here would be the small overstatement the product exists to avoid.
+    const answer = await ask(transcript(), 'q', vi.fn(async () => 'NOT_IN_VIDEO'))
+    expect(answer.message).not.toMatch(/comment/i)
+  })
+
   it('recognises an abstention wrapped in punctuation or a fence', async () => {
     for (const reply of ['```\nNOT_IN_VIDEO\n```', '"NOT_IN_VIDEO"', 'NOT_IN_VIDEO.']) {
       expect((await ask(transcript(), 'q', vi.fn(async () => reply))).status).toBe('not_in_video')

@@ -283,3 +283,47 @@ export function resetQuota(): void {
   memoryUsage.reset()
   memoryDeployment.reset()
 }
+
+/**
+ * What this user has left today.
+ *
+ * The Firestore rules already say why this exists: `users/{uid}/usage/{day}` is
+ * readable by its owner *"so the product can show them what they have left"*.
+ * Nothing showed it, so the first signal a user got was a 429 — a refusal is a
+ * fine thing to hit and a poor thing to be surprised by.
+ *
+ * Read-only and never claims anything. A storage failure reports null rather
+ * than throwing: a panel that cannot be drawn must not take the settings page
+ * with it, and "we do not know" is an honest thing for it to say.
+ *
+ * The deployment ceiling is deliberately absent. `firestore.rules` denies it to
+ * every client for reading as well as writing, because the remaining headroom
+ * is exactly the fact that makes exhausting it easy to time.
+ */
+export interface Headroom {
+  readonly meter: Meter | 'video'
+  readonly label: string
+  readonly used: number
+  readonly limit: number
+}
+
+export async function headroom(uid: string, now = Date.now()): Promise<Headroom[] | null> {
+  const configured = limits()
+  try {
+    const usage = await usageStore().read(uid, now)
+    return [
+      { meter: 'ingest', label: 'Videos analysed', used: usage.ingest, limit: configured.perDay.ingest },
+      { meter: 'ask', label: 'Questions asked', used: usage.ask, limit: configured.perDay.ask },
+      {
+        meter: 'video',
+        label: 'Video sent for reading',
+        // Minutes, because seconds of video is the provider's unit and not a
+        // person's. Rounded up so a partial minute is not reported as free.
+        used: Math.ceil(usage.videoSeconds / 60),
+        limit: Math.floor(configured.videoSecondsPerDay / 60),
+      },
+    ]
+  } catch {
+    return null
+  }
+}

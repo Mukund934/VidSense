@@ -85,6 +85,37 @@ function asInt(value: unknown): number | null {
 }
 
 /**
+ * A refusal that says what was actually looked at.
+ *
+ * "This video does not address that question" is true and reads like a shrug —
+ * the same sentence a model produces when it has not bothered. Naming the
+ * corpus turns it into a finding: a reader can tell the difference between *we
+ * searched everything and it is not there* and *we did not find it*, and only
+ * the first is evidence.
+ *
+ * It names the transcript and nothing else, because the transcript is all this
+ * layer searched. The comments are a separate lane fetched by a separate route,
+ * and claiming to have read 300 of them here would be the kind of small
+ * overstatement the whole product exists to avoid.
+ *
+ * The design also asks for the three nearest topics. That needs either another
+ * model call — a cost, on the one answer that produced nothing — or a lexical
+ * guess dressed up as understanding. Neither is worth it, so it is not here.
+ */
+function abstentionMessage(transcript: TimedTranscript): string {
+  const lines = transcript.cues.length
+  if (lines === 0) return 'There is no transcript for this video, so there was nothing to search.'
+
+  const minutes = Math.round(transcript.durationMs / 60_000)
+  const scope =
+    minutes > 0
+      ? `all ${lines.toLocaleString()} lines of this transcript, covering ${minutes} ${minutes === 1 ? 'minute' : 'minutes'} of video`
+      : `all ${lines.toLocaleString()} lines of this transcript`
+
+  return `I searched ${scope}. This video does not address that question, and nothing here is being inferred for you.`
+}
+
+/**
  * Read the model's JSON into claims, discarding anything malformed.
  *
  * Deliberately permissive about *shape* and strict about *substance*: a missing
@@ -150,9 +181,7 @@ export function buildAnswer(
       status: 'not_in_video',
       claims: [],
       rejected: [],
-      message:
-        options.message ??
-        'This video does not address that question. Nothing here is being inferred for you.',
+      message: options.message ?? abstentionMessage(transcript),
     }
   }
 

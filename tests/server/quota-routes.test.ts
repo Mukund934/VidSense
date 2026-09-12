@@ -341,3 +341,56 @@ describe('POST /api/ask', () => {
     expect(usage.ingest).toBe(0)
   })
 })
+
+describe('headroom', () => {
+  /**
+   * The Firestore rules say why this exists: the usage document is readable by
+   * its owner *"so the product can show them what they have left"*. Nothing
+   * showed it, so the first signal a user got was a 429.
+   */
+  async function read(uid: string) {
+    const { headroom } = await import('@/lib/server/quota')
+    return headroom(uid)
+  }
+
+  it('starts at zero against the configured limits', async () => {
+    const meters = await read('fresh-user')
+    expect(meters?.map((m) => m.meter)).toEqual(['ingest', 'ask', 'video'])
+    expect(meters?.every((m) => m.used === 0)).toBe(true)
+    expect(meters?.every((m) => m.limit > 0)).toBe(true)
+  })
+
+  it('reflects what has actually been spent, and only that', async () => {
+    const { settle, spend } = await import('@/lib/server/quota')
+    const claim = await spend('spender', 'ask')
+    await settle(claim, { charged: true })
+
+    const meters = await read('spender')
+    expect(meters?.find((m) => m.meter === 'ask')?.used).toBe(1)
+    expect(meters?.find((m) => m.meter === 'ingest')?.used).toBe(0)
+  })
+
+  it('does not count a claim that was refunded', async () => {
+    // A cache hit, a failed ingest and an unanswerable question all cost the
+    // provider nothing, so none of them should show against an allowance.
+    const { settle, spend } = await import('@/lib/server/quota')
+    await settle(await spend('refunded-user', 'ingest'), { charged: false })
+
+    expect((await read('refunded-user'))?.find((m) => m.meter === 'ingest')?.used).toBe(0)
+  })
+
+  it('reports video time in minutes, because seconds is the provider unit', async () => {
+    const video = (await read('fresh-user'))?.find((m) => m.meter === 'video')
+    // The default is five hours a day. Anything reported in seconds here would
+    // be a five-digit number nobody can read as an allowance.
+    expect(video?.limit).toBe(300)
+  })
+
+  it('never reports the deployment ceiling', async () => {
+    // firestore.rules denies it to every client for reading as well as
+    // writing: the remaining headroom is the fact that makes exhausting it
+    // easy to time.
+    const meters = await read('fresh-user')
+    expect(JSON.stringify(meters)).not.toMatch(/deployment/i)
+  })
+})

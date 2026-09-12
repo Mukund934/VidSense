@@ -21,8 +21,13 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['tests/rules/**/*.test.ts', 'tests/emulator/**/*.test.ts'],
-    testTimeout: 20_000,
-    hookTimeout: 30_000,
+    // Generous, because the slow tests here are the ones that deliberately
+    // create contention and then wait out Firestore's own retry backoff — a
+    // duration the test does not control. Measured locally at up to 12 s
+    // against the old 20 s limit, which is too thin a margin for a shared CI
+    // runner; one run in three flaked before this went up.
+    testTimeout: 60_000,
+    hookTimeout: 60_000,
     fileParallelism: false,
   },
 })

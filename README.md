@@ -11,7 +11,7 @@ about it, find the moment something was said, and see the words that back every 
 
 ## Status
 
-**Early but real. The application runs end to end.**
+**Feature-complete and deployable. The application runs end to end.**
 
 Paste a YouTube link and VidSense fetches the video's details, reads a transcript, stores it, and gives you a
 workspace: the player, a searchable transcript, a question box that answers with citations, what viewers said,
@@ -33,13 +33,18 @@ This README describes what is actually implemented. Where something is planned r
 | Answer layer — cue-index citations, lanes, abstention | ✅ implemented |
 | Prompt-injection suite (8 classes) | ✅ implemented |
 | Comments ingestion for the VIEWERS SAY lane | ✅ implemented |
-| Evidence Pack export | ✅ implemented |
+| Evidence Pack export, and copy-with-link per receipt | ✅ implemented |
 | Web application — landing, workspace, player, chat, history, settings | ✅ implemented |
-| Google sign-in over a server-verified session | ✅ implemented |
+| Google sign-in over a signed, server-verified session | ✅ implemented |
+| Per-user daily limits and a deployment-wide ceiling | ✅ implemented |
+| 30-day retention, enforced by a scheduled sweep | ✅ implemented |
+| Content Security Policy and security headers | ✅ implemented |
+| Structured logging, health endpoint, deployment smoke test | ✅ implemented |
 | Data deletion | ✅ implemented |
 | Notes and bookmarks | ✅ implemented |
 | Takeout watch-history import | ✅ implemented |
 | Entailment gate — does a citation *support* its claim? | ✅ implemented, off by default |
+| Cross-video search, embeddings, App Check, published eval set | ✖ not built — see [Known limitations](#known-limitations) |
 
 ---
 
@@ -97,6 +102,8 @@ tolerance, every receipt inherits them, and the precision is derived rather than
 
 An unlocated receipt still shows its verbatim quote, because the quote is real evidence. It gets no jump link,
 because a link that lands in the wrong sentence turns evidence into a false claim with a timestamp attached.
+The same rule governs **Copy with link**: a citation on the clipboard says "time not established" rather than
+naming a moment nobody can stand behind.
 
 A transcript that never states its timing defaults to the least trustworthy source. Precision has to be
 earned, not assumed.
@@ -105,6 +112,14 @@ earned, not assumed.
 from the player's clock at the moment you pressed the button, not from a transcript, so they carry no tolerance
 and always jump precisely. It is the one place in the product where a plain timestamp is the honest thing to
 show.
+
+### A refusal is a finding
+
+When the transcript does not cover a question, VidSense says so and says what it read: *"I searched all 1,284
+lines of this transcript, covering 47 minutes of video. This video does not address that question, and
+nothing here is being inferred for you."* The
+sentence names the corpus because "this video does not address that question" on its own is also what a model
+says when it did not look, and a reader has no way to tell the two apart.
 
 ---
 
@@ -116,6 +131,11 @@ show.
       v
   parse + host allowlist        rejects javascript:, data:, lookalike hosts
       |
+      v
+  QUOTA                         burst limit -> per-user daily budget ->
+      |                         deployment-wide ceiling. Before any provider
+      |                         call, because a check after one has already
+      |                         spent the thing it protects
       v
   CACHE  videos/{id}            unexpired + shareable provenance -> ~2 reads, done
       |
@@ -156,12 +176,15 @@ return when cross-video search does.
 
 ## Stack
 
-- **TypeScript**, Node ≥ 20 — no build step in the library today
-- **Firebase** — Cloud Firestore for storage, Firebase Auth (Google) planned for the app
-- **Gemini** — transcript acquisition from a YouTube URL
-- **YouTube Data API v3** — public metadata
-- **Vitest** — the whole test suite
-- Planned: **Next.js** (App Router) + Tailwind for the web app
+- **TypeScript**, Node ≥ 20
+- **Next.js 16** (App Router) + **Tailwind CSS 4** — one deployable, server secrets never reach the browser
+- **Firebase** — Cloud Firestore for storage, Firebase Auth (Google) for sign-in
+- **Gemini** — transcript acquisition from a YouTube URL, and answering
+- **YouTube Data API v3** — public metadata and comments
+- **Vitest** — the whole test suite, offline by default
+
+No animation library, no component library, no state library, no vector database, no queue, no cache tier.
+Each of those is an absence with a reason behind it rather than a gap.
 
 ---
 
@@ -178,15 +201,18 @@ Names only — never commit values. `.env.local` is git-ignored.
 
 | Variable | Purpose | Required |
 |---|---|---|
-| `GEMINI_API_KEY` | Transcript acquisition. Server-side only | yes |
-| `YOUTUBE_API_KEY` | Video metadata. Server-side only | yes |
-| `USE_FIREBASE_EMULATOR` | Route local traffic to the emulator | for local dev |
-| `NEXT_PUBLIC_FIREBASE_API_KEY` | Firebase web config | for the app |
-| `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | Firebase web config | for the app |
-| `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | Firebase web config | for the app |
-| `NEXT_PUBLIC_FIREBASE_APP_ID` | Firebase web config | for the app |
-| `FIREBASE_SERVICE_ACCOUNT_PATH` | Admin SDK, for server writes | when deploying |
+| `GEMINI_API_KEY` | Transcript acquisition and answering. Server-side only | yes |
+| `YOUTUBE_API_KEY` | Video metadata and comments. Server-side only | yes |
+| `NEXT_PUBLIC_FIREBASE_API_KEY` | Firebase web config | for sign-in |
+| `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | Firebase web config | for sign-in |
+| `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | Firebase web config | for sign-in |
+| `NEXT_PUBLIC_FIREBASE_APP_ID` | Firebase web config | for sign-in |
+| `FIREBASE_SERVICE_ACCOUNT_PATH` | Admin SDK — a path, or the JSON inline | for storage and sign-in |
+| `USE_FIREBASE_EMULATOR` | Route local traffic to the emulator | local dev only |
+| `NEXT_PUBLIC_SITE_URL` | The public origin, for link previews and `robots.txt` | when deployed |
+| `CRON_SECRET` | Authorises the daily retention sweep | when deployed |
 | `GEMINI_MODEL` | Override the default model | no |
+| `VERIFY_ANSWERS` | `1` turns on the entailment gate | no |
 | `INGESTS_PER_DAY` | Videos one user may analyse per day (default 5) | no |
 | `ASKS_PER_DAY` | Questions one user may ask per day (default 50) | no |
 | `VIDEO_SECONDS_PER_DAY` | Video one user may send per day (default 5 hours) | no |
@@ -197,8 +223,9 @@ Names only — never commit values. `.env.local` is git-ignored.
 | `DEPLOYMENT_ASKS_PER_DAY` | Questions the whole deployment may answer per day (default 1000) | no |
 
 The `NEXT_PUBLIC_FIREBASE_*` values are publishable by design — Firebase web config is not a secret, and
-safety comes from Security Rules and App Check rather than from hiding it. `GEMINI_API_KEY` and
-`YOUTUBE_API_KEY` are secrets and must never be exposed to a browser.
+safety comes from Security Rules and App Check rather than from hiding it. `GEMINI_API_KEY`,
+`YOUTUBE_API_KEY`, `FIREBASE_SERVICE_ACCOUNT_PATH` and `CRON_SECRET` are secrets and must never be exposed to
+a browser. `npm run scan:secrets` runs in CI as the last gate before anything is pushed.
 
 ---
 
@@ -218,6 +245,8 @@ npm run test:all        # both
 npm run typecheck
 npm run lint
 npm run build
+npm run scan:secrets    # no credentials in tracked files
+npm run smoke -- https://your-deployment   # against a live deployment
 ```
 
 The default suite runs **fully offline against injected fakes**. It needs no API key and makes no network
@@ -246,9 +275,12 @@ npm run experiment -- C1-align     # one experiment
 
 ```
 app/             Next.js App Router — pages and route handlers
-  api/           ingest (streamed), ask, comments, export, session, account
+  api/           ingest (streamed), ask, comments, export, session, account,
+                 annotations, watch-history, health, maintenance/sweep
 components/      the workspace: player, transcript, chat, receipts, viewers
+  ui.tsx         the shared primitives — button, notice, skeleton, empty state
 lib/
+  security-headers.ts  the CSP and the headers that carry no per-request part
   server/        the only place environment variables are read
 src/
   domain/        pure logic, no I/O
@@ -269,15 +301,22 @@ src/
   answer/
     contract.ts      what a model may say, and how claims become receipts
     ask.ts           prompt construction and the question loop
+    verify.ts        the entailment gate
+  quota/           burst limiter and the daily budget arithmetic
   export/
     evidence-pack.ts the takeaway artifact, with a verbatim ceiling
+    citation.ts      one receipt, on the clipboard
   data/
     schema.ts        Firestore document shapes and collection paths
     firestore.ts     the storage adapters
     annotations.ts   notes and bookmarks, whose timestamps are exact
     watch-history.ts an imported history, as one compressed document
-scripts/experiments/ live-provider probes
-tests/               offline suite, plus tests/emulator and tests/rules
+    usage.ts         the per-user daily ledger
+    deployment.ts    the deployment-wide ceiling, with reservations
+    retention.ts     deleting what the 30-day window has closed on
+proxy.ts         visitor identity and the per-request CSP nonce
+scripts/         experiments, the secret scanner, the deployment smoke test
+tests/           offline suite, plus tests/emulator and tests/rules
 ```
 
 ---
@@ -290,9 +329,20 @@ Third-party text — transcripts, titles, descriptions, comments — is treated 
   where every transcript is built, so a payload that renders as nothing cannot reach storage or a model.
 - **Fenced in context.** Untrusted text enters a prompt inside a delimited block carrying a per-call random
   nonce. A fixed delimiter is one the text can simply contain; a nonce it cannot guess is one it cannot close.
+- **A nonce-based Content Security Policy**, with no `unsafe-inline` for scripts and an explicit host list —
+  the YouTube player and Google sign-in, and nothing else. `frame-ancestors 'none'`, so a signed-in session
+  can never be framed. `npm run smoke` asserts the policy is present, that its nonce changes per request, and
+  that every script Next emits carries it.
+- **Sessions are signed.** Signing in exchanges a Firebase ID token for a session cookie the Admin SDK mints
+  and verifies. The cookie never holds a bare uid, and the anonymous visitor id is accepted only in the shape
+  this server mints, so it cannot name a Firebase account.
 - **Deny-by-default storage.** Firestore rules are closed by default, user data is reachable only by its
-  owner, and shared video knowledge is readable by signed-in users but writable only by the server.
-- **Secrets stay server-side.** `GEMINI_API_KEY` and `YOUTUBE_API_KEY` are never `NEXT_PUBLIC_*`.
+  owner, shared video knowledge is readable by signed-in users but writable only by the server, and the
+  deployment's own quota ledger is denied to every client for reading as well as writing.
+- **Secrets stay server-side.** `GEMINI_API_KEY` and `YOUTUBE_API_KEY` are never `NEXT_PUBLIC_*`, a scanner
+  runs over every tracked file in CI, and the smoke test checks the deployed page source too.
+- **Logs carry no user content.** One JSON line per event to stdout, with identities as a short non-reversible
+  hash and no question, transcript, comment or title in any field.
 
 Homoglyphs are deliberately **not** folded. Confusable letters across scripts are a real trick, but rewriting
 one script into another corrupts every legitimate comment not written in English — that is a detection
@@ -316,7 +366,7 @@ VidSense is built to run on free tiers during development and early use.
   user at once — Gemini's YouTube-URL path allows roughly 8 hours of video a day for the whole project, not
   per person — so one person in a loop would otherwise end everybody's day. Counted in videos, in questions
   and in seconds of video, because a count of videos cannot bound hours of video on its own. A cache hit is
-  refunded; so is a failed ingest, and a question that could not be answered.
+  refunded; so is a failed ingest, and a question that could not be answered. Settings shows what is left.
 - **A deployment-wide ceiling sits behind those**, because a signed-out identity is a cookie and per-user
   caps therefore bound one honest person rather than ten arrivals. Because a video's length is unknown until
   its metadata has been fetched, an ingest reserves the worst case up front and settles to the real duration
@@ -331,6 +381,39 @@ VidSense is built to run on free tiers during development and early use.
 
 ---
 
+## Deployment
+
+**One Next.js deployment on Vercel, in `bom1` (Mumbai), plus the Firebase project.** There is no separate
+backend, and the reason is arithmetic rather than preference:
+
+| Constraint | Requirement | Hobby plan |
+|---|---|---|
+| Ingest waits on a provider transcribing a video | `maxDuration = 300` | 300 s default **and** maximum |
+| The retention sweep runs on a schedule | once a day | 100 cron jobs, minimum interval once a day |
+| Takeout import posts ids and timestamps | ~200 KB | 4.5 MB body limit |
+| Card required | none | none |
+
+*(Vercel limits verified 2026-09-12.)* Cloud Run remains the plan for later scale: its always-free tier
+requires an active billing account, so choosing it now would end the zero-cost constraint to buy nothing the
+Hobby plan does not already provide. `bom1` rather than the default US region because Firestore is in
+`asia-south1` and every request makes several round trips to it.
+
+`vercel.json` carries the region and the daily cron. Deploying is: import the repository, set the environment
+variables above, add the deployment's hostname to Firebase's authorized domains, and
+`firebase deploy --only firestore:rules`. Then:
+
+```bash
+npm run smoke -- https://your-deployment
+```
+
+Nine checks against the live URL — health, the security headers, the CSP nonce reaching Next's scripts, the
+404, the sweep refusing an unauthenticated caller, `robots.txt`, and no secret in the page source. It
+analyses nothing, so it spends no provider quota and is safe to run repeatedly.
+
+**Vercel's Hobby plan is non-commercial.** VidSense must move to a paid plan before it charges anyone.
+
+---
+
 ## Known limitations
 
 - **Timestamps are approximate.** See the guarantees section above. Receipts state their own precision, and
@@ -339,6 +422,16 @@ VidSense is built to run on free tiers during development and early use.
   not to destroy correct citations, which is a different and weaker claim than being proven to catch bad ones.
 - **Generator and verifier are the same model family.** A cross-vendor verifier would be stronger; the
   architecture rules v1 to a single provider, so this is noted rather than solved.
+- **There is no published accuracy number.** Measuring one honestly needs a labelled evaluation set built by
+  hand across dozens of videos, and that has not been done. Nothing here claims a percentage.
+- **Cross-video search does not exist.** Everything is scoped to one video, which is what makes the
+  no-embeddings design correct rather than lazy.
+- **App Check is not enabled.** The Firestore rules already deny a client everything it should not reach, so
+  this is defence in depth rather than a hole — but it is not on.
+- **The burst limiter is per process.** Across several instances each gets its own window. It shapes traffic;
+  the daily budget and the deployment ceiling are what bound spend, and both are persisted.
+- **Two deployments sharing one Gemini key would each get a full allowance.** The ceiling is per Firestore
+  project. Nothing in code can see that; it is a deployment rule, not a mechanism.
 - **Watch history comes from Takeout, not an API.** YouTube's history playlist has returned empty since 2016,
   and the Data Portability API is EU/Switzerland/UK only. The import reads your archive **in the browser** and
   sends only video ids and watch times; it stores no titles, so the watched list shows ids until you open one.

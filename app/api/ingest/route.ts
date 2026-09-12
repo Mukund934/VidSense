@@ -86,8 +86,24 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      /**
+       * Write one event, unless the reader has already gone.
+       *
+       * A client that navigates away mid-ingest aborts the fetch, which closes
+       * the controller under us — and the next `enqueue` throws *inside the
+       * catch block that was handling the first failure*, so the real error is
+       * replaced by "Invalid state: Controller is already closed". React's
+       * development double-mount does this on every page load, which is how it
+       * was found.
+       */
+      let open = true
       const send = (event: unknown) => {
-        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
+        if (!open) return
+        try {
+          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
+        } catch {
+          open = false
+        }
       }
 
       try {
@@ -168,7 +184,13 @@ export async function POST(request: NextRequest): Promise<Response> {
           message: err instanceof Error ? err.message : 'Ingest failed unexpectedly.',
         })
       } finally {
-        controller.close()
+        if (open) {
+          try {
+            controller.close()
+          } catch {
+            /* the reader closed it first, which is not our problem */
+          }
+        }
       }
     },
   })
